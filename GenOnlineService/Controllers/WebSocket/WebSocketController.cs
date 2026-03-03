@@ -771,19 +771,30 @@ namespace GenOnlineService.Controllers
 						UserSession? targetSession = WebSocketManager.GetDataFromUser(signal.target_user_id);
 						if (targetSession != null)
 						{
-							// now into json for our ws msg format
-							// NOTE: outbound msg doesnt need sender ID, we only need that to determine target on the server, everything else is included in the payload
-							WebSocketMessage_SignalBidirectional outboundSignal = new WebSocketMessage_SignalBidirectional();
-							outboundSignal.msg_id = (int)EWebSocketMessageID.NETWORK_SIGNAL;
-							outboundSignal.target_user_id = sourceUserSession.m_UserID; // user here is the person who sent it to us
-							outboundSignal.payload = signal.payload;
-							byte[] bytesJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(outboundSignal));
+							Lobby? lobby = LobbyManager.GetLobby(sourceUserSession.currentLobbyID);
 
-							targetSession.QueueWebsocketSend(bytesJSON);
-							//Console.WriteLine("Signal out is: {0}", JsonSerializer.Serialize(outboundSignal));
-							//Console.WriteLine("SIGNAL SENT ({0} bytes) (from user {1} to user {2})", bytesJSON.Length, wsSess.m_UserID, sess.m_UserID);
-							//Console.WriteLine("MSG WAS: {0}", strMessage);
-							//break;
+							if (lobby != null)
+							{
+								LobbyMember? targetUser = lobby.GetMemberFromUserID(targetSession.m_UserID);
+								LobbyMember? sourceUser = lobby.GetMemberFromUserID(sourceUserSession.m_UserID);
+
+								if (sourceUser != null && targetUser != null)
+								{
+									// now into json for our ws msg format
+									// NOTE: outbound msg doesnt need sender ID, we only need that to determine target on the server, everything else is included in the payload
+									WebSocketMessage_SignalBidirectional outboundSignal = new WebSocketMessage_SignalBidirectional();
+									outboundSignal.msg_id = (int)EWebSocketMessageID.NETWORK_SIGNAL;
+									outboundSignal.target_user_id = sourceUserSession.m_UserID; // user here is the person who sent it to us
+									outboundSignal.payload = signal.payload;
+									byte[] bytesJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(outboundSignal));
+
+									targetSession.QueueWebsocketSend(bytesJSON);
+									//Console.WriteLine("Signal out is: {0}", JsonSerializer.Serialize(outboundSignal));
+									//Console.WriteLine("SIGNAL SENT ({0} bytes) (from user {1} to user {2})", bytesJSON.Length, wsSess.m_UserID, sess.m_UserID);
+									//Console.WriteLine("MSG WAS: {0}", strMessage);
+									//break;
+								}
+							}
 						}
 						else
 						{
