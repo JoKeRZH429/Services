@@ -894,7 +894,7 @@ static class MatchmakingManager
 							Lobby? lobby = LobbyManager.GetLobby(m_LobbyID);
 							if (lobby != null)
 							{
-								lobby.UpdateState(ELobbyState.INGAME);
+								await lobby.UpdateState(ELobbyState.INGAME);
 							}
 
 							// destroy the bucket

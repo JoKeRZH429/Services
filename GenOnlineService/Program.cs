@@ -851,27 +851,23 @@ namespace GenOnlineService
 			timerCleanup.AutoReset = false;
 			timerCleanup.Elapsed += async (sender, e) =>
 			{
-				await WebSocketManager.CheckForTimeouts();
-
-				int numLobbies = LobbyManager.GetNumLobbies();
-				await StatsTracker.Update(numLobbies, WebSocketManager.GetUserDataCache().Count);
-
-				timerCleanup.Start();
-
-				LobbyManager.Cleanup();
-
-				// disconnect test
-				/*
-				bool bDisc = false;
-				if (bDisc)
+				try
 				{
-					ChatSession? targetSession = GenOnlineService.WebSocketManager.GetSessionFromUser(2);
-					if (targetSession != null)
-					{
-						await GenOnlineService.WebSocketManager.DeleteSession(targetSession);
-					}
+					await WebSocketManager.CheckForTimeouts();
+
+					int numLobbies = LobbyManager.GetNumLobbies();
+					await StatsTracker.Update(numLobbies, WebSocketManager.GetUserDataCache().Count);
+
+					await LobbyManager.Cleanup();
 				}
-				*/
+				catch (Exception ex)
+				{
+					Console.WriteLine($"[timerCleanup] Exception: {ex}");
+				}
+				finally
+				{
+					timerCleanup.Start();
+				}
 			};
 			timerCleanup.Start();
 
@@ -884,11 +880,19 @@ namespace GenOnlineService
 				timerTick.AutoReset = false;
 				timerTick.Elapsed += async (sender, e) =>
 				{
-					await LobbyManager.Tick();
-
-					await WebSocketManager.Tick();
-
-					timerTick.Start();
+					try
+					{
+						await LobbyManager.Tick();
+						await WebSocketManager.Tick();
+					}
+					catch (Exception ex)
+					{
+						Console.WriteLine($"[timerTick lobby] Exception: {ex}");
+					}
+					finally
+					{
+						timerTick.Start();
+					}
 				};
 				timerTick.Start();
 			}
@@ -899,9 +903,18 @@ namespace GenOnlineService
 				timerTick.AutoReset = false;
 				timerTick.Elapsed += async (sender, e) =>
 				{
-					await MatchmakingManager.Tick();
-
-					timerTick.Start();
+					try
+					{
+						await MatchmakingManager.Tick();
+					}
+					catch (Exception ex)
+					{
+						Console.WriteLine($"[timerTick matchmaking] Exception: {ex}");
+					}
+					finally
+					{
+						timerTick.Start();
+					}
 				};
 				timerTick.Start();
 			}
@@ -912,9 +925,18 @@ namespace GenOnlineService
 				timerTick.AutoReset = false;
 				timerTick.Elapsed += async (sender, e) =>
 				{
-					await WebSocketManager.TickRoomMemberList();
-
-					timerTick.Start();
+					try
+					{
+						await WebSocketManager.TickRoomMemberList();
+					}
+					catch (Exception ex)
+					{
+						Console.WriteLine($"[timerTick rooms] Exception: {ex}");
+					}
+					finally
+					{
+						timerTick.Start();
+					}
 				};
 				timerTick.Start();
 			}
@@ -925,8 +947,18 @@ namespace GenOnlineService
 				timerTick.AutoReset = false;
 				timerTick.Elapsed += async (sender, e) =>
 				{
-					// save daily stats
-					await DailyStatsManager.SaveToDB();
+					try
+					{
+						await DailyStatsManager.SaveToDB();
+					}
+					catch (Exception ex)
+					{
+						Console.WriteLine($"[timerTick dailystats] Exception: {ex}");
+					}
+					finally
+					{
+						timerTick.Start();
+					}
 				};
 				timerTick.Start();
 			}
@@ -941,10 +973,7 @@ namespace GenOnlineService
 			g_tokenGenerator = new JwtTokenGenerator(builder.Configuration);
 
 			// load daily stats
-			// TODO_SOCIAL: await
-#pragma warning disable CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
-			DailyStatsManager.LoadFromDB();
-#pragma warning restore CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
+			await DailyStatsManager.LoadFromDB();
 
 
 			app.Run();
