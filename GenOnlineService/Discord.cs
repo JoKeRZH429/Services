@@ -111,7 +111,11 @@ public class DiscordBot
 	public DiscordBot()
 	{
 #if !DEBUG
-		InitAsync();
+		_ = InitAsync().ContinueWith(t =>
+		{
+			if (t.IsFaulted)
+				Console.WriteLine("Discord initialization failed: " + t.Exception);
+		}, TaskContinuationOptions.OnlyOnFaulted);
 #endif
 	}
 
@@ -693,7 +697,7 @@ public class DiscordBot
 		return Task.CompletedTask;
 	}
 
-	private async void InitAsync()
+	private async Task InitAsync()
 	{
 #if !DEBUG || USE_DISCORD_IN_DEBUG
 		DiscordSocketConfig conf = new();

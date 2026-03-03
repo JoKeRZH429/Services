@@ -277,7 +277,7 @@ namespace GenOnlineService
 	{
 		public static IConfiguration? g_Config = null;
 		public static DiscordBot? g_Discord = null;
-		static async void DoCleanup(bool bStartup)
+		static async Task DoCleanup(bool bStartup)
 		{
 			await Database.Functions.Auth.Cleanup(GlobalDatabaseInstance.g_Database, bStartup);
 
@@ -528,7 +528,7 @@ namespace GenOnlineService
 			await GlobalDatabaseInstance.g_Database.Initialize();
 
 			// do a cleanup on startup
-			DoCleanup(true);
+			await DoCleanup(true);
 
 
 

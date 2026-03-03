@@ -1557,7 +1557,7 @@ namespace Database
 				return sb.ToString();
 			}
 
-			public static async void CleanupPendingLogin(MySQLInstance m_Inst, string strGameCode)
+			public static async Task CleanupPendingLogin(MySQLInstance m_Inst, string strGameCode)
 			{
 				strGameCode = strGameCode.ToUpper();
 
@@ -2068,7 +2068,7 @@ namespace Database
 
 		private DateTime m_LastQueryTime = DateTime.Now;
 
-		public async void KeepAlive()
+		public async Task KeepAlive()
 		{
 			//await _semaphore.WaitAsync();
 			try

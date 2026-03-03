@@ -619,16 +619,9 @@ namespace GenOnlineService
 				return;
 			}
 
-			// If we have a websocket active, just send immediately, otherwise, queue it
-			UserWebSocketInstance websocketForUser = WebSocketManager.GetWebSocketForSession(this);
-			if (websocketForUser != null)
-			{
-				websocketForUser.SendAsync(bytesJSON, WebSocketMessageType.Text);
-			}
-			else
-			{
-				m_lstPendingWebsocketSends.Enqueue(bytesJSON);
-			}
+			// Always enqueue; the TickWebsocket drain loop is the sole sender,
+			// ensuring WebSocket.SendAsync is never called concurrently.
+			m_lstPendingWebsocketSends.Enqueue(bytesJSON);
 		}
 
 		public async Task<UserWebSocketInstance> CloseWebsocket(WebSocketCloseStatus reason, string strReason)
@@ -653,7 +646,7 @@ namespace GenOnlineService
 				// start dequeing and sending
 				while (messagesSent < maxMessagesSendPerFrame && m_lstPendingWebsocketSends.TryDequeue(out byte[] packetData))
 				{
-					websocketForUser.SendAsync(packetData, WebSocketMessageType.Text);
+					await websocketForUser.SendAsync(packetData, WebSocketMessageType.Text);
 					++messagesSent;
 				}
 			}
@@ -889,7 +882,7 @@ namespace GenOnlineService
 					}
 					*/
 
-					var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+					using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 					await m_SockInternal.SendAsync(buffer, messageType, true, cts.Token);
 				}
 				catch
@@ -1667,7 +1660,7 @@ namespace GenOnlineService
 			// we should only have 1 turn credential at a time... clean it up
 			if (g_DictTURNUsernames.ContainsKey(userID))
 			{
-				DeleteCredentialsForUser(userID);
+				await DeleteCredentialsForUser(userID);
 			}
 
 			// create new credential
@@ -1763,7 +1756,7 @@ namespace GenOnlineService
 			return null;
 		}
 
-		public static async void DeleteCredentialsForUser(Int64 userID)
+		public static async Task DeleteCredentialsForUser(Int64 userID)
 		{
 #if DEBUG
             await Task.Delay(1);

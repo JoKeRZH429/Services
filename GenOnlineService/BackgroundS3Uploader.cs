@@ -50,7 +50,7 @@ static class BackgroundS3Uploader
     private static Int64 g_LastUpload = -1;
 
     private static Thread g_BackgroundThread = null;
-    private static bool g_bShutdownRequested = false;
+    private static volatile bool g_bShutdownRequested = false;
 
     public static void Initialize()
     {
@@ -76,7 +76,7 @@ static class BackgroundS3Uploader
                     // queue the next thing
                     if (m_queueUploads.TryDequeue(out S3QueuedUploadEntry entry))
                     {
-                        DoUpload(entry);
+                        DoUpload(entry).GetAwaiter().GetResult();
 						g_LastUpload = Environment.TickCount64;
 					}
                 }

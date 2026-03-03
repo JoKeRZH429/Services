@@ -216,7 +216,7 @@ namespace GenOnlineService.Controllers
 										result.ws_uri = null;
 									}
 
-									Database.Functions.Auth.CleanupPendingLogin(GlobalDatabaseInstance.g_Database, gameCode);
+									await Database.Functions.Auth.CleanupPendingLogin(GlobalDatabaseInstance.g_Database, gameCode);
 
 									return result;
 								}
@@ -231,7 +231,7 @@ namespace GenOnlineService.Controllers
 							{
 								result.result = EPendingLoginState.LoginFailed;
 								Response.StatusCode = (int)HttpStatusCode.Forbidden;
-								Database.Functions.Auth.CleanupPendingLogin(GlobalDatabaseInstance.g_Database, gameCode);
+								await Database.Functions.Auth.CleanupPendingLogin(GlobalDatabaseInstance.g_Database, gameCode);
 							}
 #if !DEBUG
 								}
