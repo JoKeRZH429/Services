@@ -33,6 +33,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using System.Threading.Tasks;
+using System.Collections.Concurrent;
 
 public enum EDiscordChannelIDs
 {
@@ -56,7 +57,7 @@ public enum DiscordCommandParsingFlags
 
 public static class Helpers
 {
-	public static Dictionary<Int64, string> g_dictInitialExeCRCs = new();
+	public static ConcurrentDictionary<Int64, string> g_dictInitialExeCRCs = new();
 	public static void RegisterInitialPlayerExeCRC(Int64 user_id, string exe_crc)
 	{
 		g_dictInitialExeCRCs[user_id] = exe_crc;
