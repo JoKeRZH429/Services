@@ -738,7 +738,7 @@ public class DiscordBot
 		{
 			if (user != null)
 			{
-				user.SendMessageAsync(strMessage);
+				user.SendMessageAsync(strMessage).ContinueWith(t => { }, TaskContinuationOptions.OnlyOnFaulted);
 			}
 		}
 		catch
@@ -786,7 +786,7 @@ public class DiscordBot
 			ISocketMessageChannel? channel = GetChannel(channelID);
 			if (channel != null)
 			{
-				channel.SendMessageAsync(strMessage);
+				channel.SendMessageAsync(strMessage).ContinueWith(t => { }, TaskContinuationOptions.OnlyOnFaulted);
 			}
 		}
 		catch
