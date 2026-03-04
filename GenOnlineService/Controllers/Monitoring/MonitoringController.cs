@@ -91,11 +91,13 @@ namespace GenOnlineService.Controllers
 	[Route("env/{environment}/contract/{contract_version}/[controller]")]
 	public class MonitoringController : ControllerBase
 	{
+		private readonly AppDbContext _db;
 		private readonly ILogger<MonitoringController> _logger;
 
-		public MonitoringController(ILogger<MonitoringController> logger)
+		public MonitoringController(AppDbContext db, ILogger<MonitoringController> logger)
 		{
 			_logger = logger;
+			_db = db;
 		}
 
 		[Route("ActiveUsers")]
@@ -254,7 +256,7 @@ namespace GenOnlineService.Controllers
 			{
 				try
 				{
-					GenOnlineService.Controllers.CheckLoginController checkLoginController = new GenOnlineService.Controllers.CheckLoginController();
+					GenOnlineService.Controllers.CheckLoginController checkLoginController = new GenOnlineService.Controllers.CheckLoginController(_db);
 					APIResult internalResult = await checkLoginController.Post_InternalHandler("{\"challenge\": \"abc\", \"nonce\": \"def\", \"code\": \"iamatest\", \"client_id\": \"gen_online_30hz\"}", IPAddress.Loopback.ToString(), true);
 					return internalResult;
 				}

@@ -48,9 +48,11 @@ namespace GenOnlineService.Controllers
 	[Route("env/{environment}/contract/{contract_version}/[controller]")]
 	public class CheckLoginController : ControllerBase
 	{
-		public CheckLoginController()
-		{
+		private readonly AppDbContext _db;
 
+		public CheckLoginController(AppDbContext db)
+		{
+			_db = db;
 		}
 
 		[HttpPost]
@@ -140,7 +142,7 @@ namespace GenOnlineService.Controllers
 								await Database.Functions.Auth.CreateUserIfNotExists_DevAccount(GlobalDatabaseInstance.g_Database, user_id, result.display_name);
 							}
 
-							bool bIsAdmin = await Database.Functions.Auth.IsUserAdmin(GlobalDatabaseInstance.g_Database, user_id);
+							bool bIsAdmin = await Database.Users.IsUserAdmin(_db, user_id);
 #else
 
 							CMySQLResult sqlRes = await GlobalDatabaseInstance.g_Database.Query("SELECT state FROM pending_logins WHERE code=@game_code LIMIT 1;", new()
@@ -171,7 +173,7 @@ namespace GenOnlineService.Controllers
 								if (clientID != null && Program.g_tokenGenerator != null)
 								{
 									// ban check
-									bool bIsBanned = await Database.Functions.Auth.IsUserBanned(GlobalDatabaseInstance.g_Database, user_id);
+									bool bIsBanned = await Database.Users.IsUserBanned(_db, user_id);
 									if (bIsBanned)
 									{
 										result.result = EPendingLoginState.LoginFailed;

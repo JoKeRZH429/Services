@@ -1380,65 +1380,6 @@ namespace Database
 				);
 			}
 
-
-			public async static Task<EAccountType> GetAccountType(MySQLInstance m_Inst, Int64 userID)
-			{
-				var res = await m_Inst.Query("SELECT account_type FROM users WHERE user_id=@user_id LIMIT 1;",
-					new()
-					{
-						{ "@user_id", userID}
-					}
-				);
-
-				if (res != null && res.NumRows() > 0)
-				{
-					var row = res.GetRow(0);
-
-					EAccountType account_type = (EAccountType)Convert.ToInt32(row["account_type"]);
-					return account_type;
-				}
-
-				return EAccountType.Unknown;
-			}
-
-			public async static Task<bool> IsUserAdmin(MySQLInstance m_Inst, Int64 userID)
-			{
-				var res = await m_Inst.Query("SELECT admin FROM users WHERE user_id=@user_id LIMIT 1;",
-					new()
-					{
-						{ "@user_id", userID}
-					}
-				);
-
-				if (res != null && res.NumRows() > 0)
-				{
-					var row = res.GetRow(0);
-
-					return Convert.ToBoolean(row["admin"]);
-				}
-
-				return false;
-			}
-
-			public async static Task<bool> IsUserBanned(MySQLInstance m_Inst, Int64 userID)
-			{
-				var res = await m_Inst.Query("SELECT banned FROM users WHERE user_id=@user_id LIMIT 1;",
-					new()
-					{
-						{ "@user_id", userID}
-					}
-				);
-
-				if (res != null && res.NumRows() > 0)
-				{
-					var row = res.GetRow(0);
-
-					return Convert.ToBoolean(row["banned"]);
-				}
-
-				return false;
-			}
-
 			public async static Task RegisterUserDevice(MySQLInstance m_Inst, Int64 userID, string hwid_0, string hwid_1, string hwid_2, string ipAddr)
 			{
 				// raw version

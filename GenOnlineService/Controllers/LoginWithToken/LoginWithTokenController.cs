@@ -122,7 +122,7 @@ namespace GenOnlineService.Controllers.LoginWithToken
 							await Database.Functions.Auth.RegisterUserDevice(GlobalDatabaseInstance.g_Database, user_id, hwid_0, hwid_1, hwid_2, ipAddr);
 
 							// ban check
-							bool bIsBanned = await Database.Functions.Auth.IsUserBanned(GlobalDatabaseInstance.g_Database, user_id);
+							bool bIsBanned = await Database.Users.IsUserBanned(_db, user_id);
 							if (bIsBanned)
 							{
 								result.result = EPendingLoginState.LoginFailed;
@@ -136,7 +136,7 @@ namespace GenOnlineService.Controllers.LoginWithToken
 							string strDisplayName = await Database.Functions.Auth.GetDisplayName(GlobalDatabaseInstance.g_Database, user_id);
 							await Database.Functions.Auth.SetUsedLoggedIn(GlobalDatabaseInstance.g_Database, user_id, clientID);
 
-							bool bIsAdmin = await Database.Functions.Auth.IsUserAdmin(GlobalDatabaseInstance.g_Database, user_id);
+							bool bIsAdmin = await Database.Users.IsUserAdmin(_db, user_id);
 
 							result.result = EPendingLoginState.LoginSuccess;
 

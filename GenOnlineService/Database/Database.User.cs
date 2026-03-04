@@ -99,3 +99,36 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
 		builder.Property(e => e.BanAliases).HasColumnName("ban_alises").HasColumnType("varchar(50)"); ;
 	}
 }
+
+namespace Database
+{
+	public static class Users
+	{
+		private static readonly Func<AppDbContext, long, Task<bool>> _isUserAdminQuery =
+			EF.CompileAsyncQuery((AppDbContext db, long userId) =>
+				db.Users
+				  .AsNoTracking()
+				  .Where(u => u.ID == userId)
+				  .Select(u => u.IsAdmin)
+				  .FirstOrDefault());
+
+		private static readonly Func<AppDbContext, long, Task<bool>> _isUserBannedQuery =
+			EF.CompileAsyncQuery((AppDbContext db, long userId) =>
+				db.Users
+				  .AsNoTracking()
+				  .Where(u => u.ID == userId)
+				  .Select(u => u.IsBanned)
+				  .FirstOrDefault());
+
+
+		public static Task<bool> IsUserAdmin(AppDbContext db, long userId)
+		{
+			return _isUserAdminQuery(db, userId);
+		}
+
+		public static Task<bool> IsUserBanned(AppDbContext db, long userId)
+		{
+			return _isUserBannedQuery(db, userId);
+		}
+	}
+}
