@@ -1998,42 +1998,52 @@ namespace Database
 	// Updated MySQLInstance class to fix memory leaks by ensuring proper disposal of resources.
 	public class MySQLInstance : IDisposable
 	{
-		// Serializes all queries on the shared m_Connection (MySqlConnection is not thread-safe)
-		private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+		// Connection string is built once from config and reused across all concurrent queries.
+		// The MySQL connector's built-in connection pool (MySqlConnection with Pooling=true) is
+		// fully thread-safe: each call to OpenAsync() leases an independent physical connection
+		// from the pool, so queries on different threads never share a connection object.
+		private static string? _cachedConnectionString;
+		private static readonly object _connStringLock = new object();
 
-		// Cached database configuration to avoid parsing config on every query
-		private static class CachedDbConfig
+		private static string GetConnectionString()
 		{
-			public static string? Host { get; set; }
-			public static string? Name { get; set; }
-			public static string? Username { get; set; }
-			public static string? Password { get; set; }
-			public static ushort Port { get; set; }
-			public static int MinPoolSize { get; set; } = 50;
-			public static int MaxPoolSize { get; set; } = 500;
-			public static bool UsePooling { get; set; } = true;
-			public static bool ConnReset { get; set; } = true;
-			public static int ConnectTimeout { get; set; } = 10;
-			public static int CommandTimeout { get; set; } = 10;
-			public static bool IsInitialized { get; set; } = false;
+			if (_cachedConnectionString != null)
+				return _cachedConnectionString;
 
-			public static void Initialize(IConfiguration dbSettings)
+			lock (_connStringLock)
 			{
-				if (!IsInitialized)
-				{
-					Host = dbSettings.GetValue<string>("db_host");
-					Name = dbSettings.GetValue<string>("db_name");
-					Username = dbSettings.GetValue<string>("db_username");
-					Password = dbSettings.GetValue<string>("db_password");
-					Port = dbSettings.GetValue<ushort>("db_port");
-					MinPoolSize = dbSettings.GetValue<int?>("db_min_poolsize") ?? 50;
-					MaxPoolSize = dbSettings.GetValue<int?>("db_max_poolsize") ?? 500;
-					UsePooling = dbSettings.GetValue<bool?>("db_use_pooling") ?? true;
-					ConnReset = dbSettings.GetValue<bool?>("db_conn_reset") ?? true;
-					ConnectTimeout = dbSettings.GetValue<int?>("db_connect_timeout") ?? 10;
-					CommandTimeout = dbSettings.GetValue<int?>("db_command_timeout") ?? 10;
-					IsInitialized = true;
-				}
+				if (_cachedConnectionString != null)
+					return _cachedConnectionString;
+
+				if (Program.g_Config == null)
+					throw new Exception("Config is null. Check config file exists.");
+
+				IConfiguration? dbSettings = Program.g_Config.GetSection("Database");
+				if (dbSettings == null)
+					throw new Exception("Database section in config is null / not set in config");
+
+				string? db_host     = dbSettings.GetValue<string>("db_host")     ?? throw new Exception("DB Hostname is null / not set in config");
+				string? db_name     = dbSettings.GetValue<string>("db_name")     ?? throw new Exception("DB Name is null / not set in config");
+				string? db_username = dbSettings.GetValue<string>("db_username") ?? throw new Exception("DB Username is null / not set in config");
+				string? db_password = dbSettings.GetValue<string>("db_password") ?? throw new Exception("DB Password is null / not set in config");
+				ushort  db_port     = dbSettings.GetValue<ushort>("db_port");
+
+				int  db_min_poolsize     = dbSettings.GetValue<int?>("db_min_poolsize")     ?? 50;
+				int  db_max_poolsize     = dbSettings.GetValue<int?>("db_max_poolsize")     ?? 500;
+				bool db_use_pooling      = dbSettings.GetValue<bool?>("db_use_pooling")     ?? true;
+				bool db_conn_reset       = dbSettings.GetValue<bool?>("db_conn_reset")      ?? true;
+				int  db_connect_timeout  = dbSettings.GetValue<int?>("db_connect_timeout")  ?? 10;
+				int  db_command_timeout  = dbSettings.GetValue<int?>("db_command_timeout")  ?? 10;
+
+				_cachedConnectionString = string.Format(
+					"Server={0}; database={1}; user={2}; password={3}; port={4};" +
+					"Pooling={5};DefaultCommandTimeout={9};Connect Timeout={10};" +
+					"MinimumPoolSize={6};maximumpoolsize={7};AllowUserVariables=true;ConnectionReset={8};",
+					db_host, db_name, db_username, db_password, db_port,
+					db_use_pooling, db_min_poolsize, db_max_poolsize, db_conn_reset,
+					db_command_timeout, db_connect_timeout);
+
+				return _cachedConnectionString;
 			}
 		}
 
@@ -2063,26 +2073,19 @@ namespace Database
                     m_Connection = null;
                 }
 #endif
-				_semaphore.Dispose();
 			}
 		}
 
-		private DateTime m_LastQueryTime = DateTime.Now;
+		// Written with Interlocked so concurrent threads don't race on a shared DateTime field.
+		private long m_LastQueryTimeTicks = DateTime.Now.Ticks;
 
 		public async Task KeepAlive()
 		{
-			//await _semaphore.WaitAsync();
-			try
+			long lastTicks = Interlocked.Read(ref m_LastQueryTimeTicks);
+			double timeSinceLastQueryMs = TimeSpan.FromTicks(DateTime.Now.Ticks - lastTicks).TotalMilliseconds;
+			if (timeSinceLastQueryMs > 300000)
 			{
-				double timeSinceLastQueryAuth = (DateTime.Now - m_LastQueryTime).TotalMilliseconds;
-				if (timeSinceLastQueryAuth > 300000)
-				{
-					await Query("SELECT user_id FROM users LIMIT 1;", null).ConfigureAwait(false);
-				}
-			}
-			finally
-			{
-				//_semaphore.Release();
+				await Query("SELECT user_id FROM users LIMIT 1;", null).ConfigureAwait(false);
 			}
 		}
 
@@ -2237,81 +2240,19 @@ namespace Database
 
 		public async Task<CMySQLResult> Query(string commandStr, Dictionary<string, object>? dictCommandValues, int attempt = 0)
 		{
-			bool semaphoreAcquired = false;
-			CMySQLResult result = new CMySQLResult(0); // default with 0 rows
-			MySqlConnection? connection = null;
-
-			// after 3 attempts, give up
+			// After 3 attempts, give up.
 			if (attempt >= 3)
-			{
-				return result;
-			}
+				return new CMySQLResult(0);
 
+			Interlocked.Exchange(ref m_LastQueryTimeTicks, DateTime.Now.Ticks);
+
+			// Each call opens its own connection leased from the shared pool.
+			// No serializing lock is needed: MySqlConnection instances are never shared between callers.
 			try
 			{
-				await _semaphore.WaitAsync().ConfigureAwait(false);
-				semaphoreAcquired = true;
-				m_LastQueryTime = DateTime.Now;
-
-#if !USE_PER_QUERY_CONNECTION
-                connection = m_Connection;
-#else
-				if (Program.g_Config == null)
+				using (var connection = new MySqlConnection(GetConnectionString()))
 				{
-					throw new Exception("Config is null. Check config file exists.");
-				}
-
-				// Initialize cached config if needed
-				if (!CachedDbConfig.IsInitialized)
-				{
-					IConfiguration? dbSettings = Program.g_Config.GetSection("Database");
-					if (dbSettings == null)
-					{
-						throw new Exception("Database section in config is null / not set in config");
-					}
-					CachedDbConfig.Initialize(dbSettings);
-				}
-
-				// Use cached config values
-				string? db_host = CachedDbConfig.Host;
-				string? db_name = CachedDbConfig.Name;
-				string? db_username = CachedDbConfig.Username;
-				string? db_password = CachedDbConfig.Password;
-				ushort db_port = CachedDbConfig.Port;
-				int db_min_poolsize = CachedDbConfig.MinPoolSize;
-				int db_max_poolsize = CachedDbConfig.MaxPoolSize;
-				bool db_use_pooling = CachedDbConfig.UsePooling;
-				bool db_conn_reset = CachedDbConfig.ConnReset;
-				int db_connect_timeout = CachedDbConfig.ConnectTimeout;
-				int db_command_timeout = CachedDbConfig.CommandTimeout;
-
-				if (db_host == null)
-				{
-					throw new Exception("DB Hostname is null / not set in config");
-				}
-
-				if (db_name == null)
-				{
-					throw new Exception("DB Name is null / not set in config");
-				}
-
-				if (db_username == null)
-				{
-					throw new Exception("DB Username is null / not set in config");
-				}
-
-				if (db_password == null)
-				{
-					throw new Exception("DB Password is null / not set in config");
-				}
-
-				
-				
-#endif
-				using (connection = new MySqlConnection(String.Format("Server={0}; database={1}; user={2}; password={3}; port={4};Pooling={5};DefaultCommandTimeout={9};Connect Timeout={10};MinimumPoolSize={6};maximumpoolsize={7};AllowUserVariables=true;ConnectionReset={8};",
-					db_host, db_name, db_username, db_password, db_port, db_use_pooling, db_min_poolsize, db_max_poolsize, db_conn_reset, db_command_timeout, db_connect_timeout)))
-				{
-					connection.Open();
+					await connection.OpenAsync().ConfigureAwait(false);
 
 					try
 					{
@@ -2320,49 +2261,30 @@ namespace Database
 							if (dictCommandValues != null)
 							{
 								foreach (var kvPair in dictCommandValues)
-								{
 									command.Parameters.AddWithValue(kvPair.Key, kvPair.Value);
-								}
 							}
 
 							if (commandStr.ToUpper().StartsWith("DELETE") || commandStr.ToUpper().StartsWith("UPDATE"))
 							{
 								int numRowsModified = await command.ExecuteNonQueryAsync().ConfigureAwait(false);
-								result = new CMySQLResult(numRowsModified);
+								return new CMySQLResult(numRowsModified);
 							}
 							else
 							{
 								using (System.Data.Common.DbDataReader reader = await command.ExecuteReaderAsync().ConfigureAwait(false))
 								{
-									result = new CMySQLResult(reader, (ulong)command.LastInsertedId);
+									return new CMySQLResult(reader, (ulong)command.LastInsertedId);
 								}
 							}
 						}
 					}
 					catch (InvalidOperationException e)
 					{
-						Console.WriteLine("MySQL Query Error: {0}", e.InnerException == null ? e.Message : e.InnerException.ToString());
-						Console.WriteLine("MySQL is attempting to reconnect");
-
-						string strExceptionMsg = String.Empty;
-						if (e.InnerException != null)
-						{
-							strExceptionMsg = e.InnerException.ToString();
-						}
-						else
-						{
-							strExceptionMsg = e.Message;
-						}
-
+						string strExceptionMsg = e.InnerException != null ? e.InnerException.ToString() : e.Message;
+						Console.WriteLine("MySQL Query Error (will retry): {0}", strExceptionMsg);
 						File.WriteAllText(Path.Combine("Exceptions", "MYSQL_2_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") + ".txt"), "MySQL Query Error:" + strExceptionMsg);
 
-							// Release semaphore before reconnect; Initialize calls Query internally
-						if (semaphoreAcquired)
-						{
-							_semaphore.Release();
-							semaphoreAcquired = false;
-						}
-						await Initialize(false).ConfigureAwait(false);
+						// The pool will surface a fresh physical connection on the next attempt.
 						return await Query(commandStr, dictCommandValues, attempt + 1).ConfigureAwait(false);
 					}
 					catch (MySqlException ex)
@@ -2372,46 +2294,23 @@ namespace Database
 					}
 					catch (Exception e)
 					{
-						string strErrorMsg = String.Format("MySQL Query Error: {0}", e.Message);
+						string strErrorMsg = string.Format("MySQL Query Error: {0}", e.Message);
 						Console.WriteLine(strErrorMsg);
 						File.WriteAllText(Path.Combine("Exceptions", "MYSQL_3_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") + ".txt"), strErrorMsg);
 
-						// Ensure semaphore is released before throwing
-						if (semaphoreAcquired)
-						{
-							_semaphore.Release();
-							semaphoreAcquired = false;
-						}
-
 						if (System.Diagnostics.Debugger.IsAttached)
-						{
 							throw;
-						}
 					}
 				}
 			}
 			catch (Exception e)
 			{
-				string strErrorMsg = String.Format("MySQL Query Error: {0}", e.Message);
-					Console.WriteLine(strErrorMsg);
-					File.WriteAllText(Path.Combine("Exceptions", "MYSQL_4_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") + ".txt"), strErrorMsg);
-			}
-			finally
-			{
-				if (semaphoreAcquired)
-				{
-					_semaphore.Release();
-				}
-#if USE_PER_QUERY_CONNECTION
-				if (connection != null)
-				{
-					connection.Close();
-					connection.Dispose();
-				}
-#endif
+				string strErrorMsg = string.Format("MySQL Query Error: {0}", e.Message);
+				Console.WriteLine(strErrorMsg);
+				File.WriteAllText(Path.Combine("Exceptions", "MYSQL_4_" + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") + ".txt"), strErrorMsg);
 			}
 
-			return result;
+			return new CMySQLResult(0);
 		}
 	}
 
