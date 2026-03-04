@@ -63,36 +63,6 @@ namespace GenOnlineService
 		LoginFailed = 2
 	};
 
-	public enum EQoSRegions
-	{
-		UNKNOWN = -1,
-		WestUS = 0,
-		CentralUS = 1,
-		WestEurope = 2,
-		SouthCentralUS = 3,
-		NorthEurope = 4,
-		NorthCentralUS = 5,
-		EastUS = 6,
-		BrazilSouth = 7,
-		AustraliaEast = 8,
-		JapanWest = 9,
-		AustraliaSoutheast = 10,
-		EastAsia = 11,
-		JapanEast = 12,
-		SoutheastAsia = 13,
-		SouthAfricaNorth = 14,
-		UaeNorth = 15
-	};
-
-	public enum EMappingTech
-	{
-		NONE = -1,
-		PCP,
-		UPNP,
-		NATPMP,
-		MANUAL
-	};
-
 	public enum EIPVersion
 	{
 		IPV4 = 0,

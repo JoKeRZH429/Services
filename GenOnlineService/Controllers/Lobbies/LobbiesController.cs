@@ -373,7 +373,7 @@ namespace GenOnlineService.Controllers
 								await _lobbyManager.CleanupUserLobbiesNotStarted(user_id);
 
 								string strDisplayName = await Database.Users.GetDisplayName(_db, user_id);
-								Int64 newLobbyID = await _lobbyManager.CreateLobby(playerSession, strDisplayName, strName, strMapName, strMapPath, bMapOfficial, maxPlayers, strIPAddr,
+								Int64 newLobbyID = await _lobbyManager.CreateLobby(_db, playerSession, strDisplayName, strName, strMapName, strMapPath, bMapOfficial, maxPlayers, strIPAddr,
 									hostPreferredPort, bVanillaTeamsOnly, bTrackStats, starting_cash, bPassworded, strPassword, playerSession.networkRoomID, bAllowObservers, maxCamHeight, exe_crc, ini_crc, ELobbyType.CustomGame);
 
 								if (newLobbyID >= 0)

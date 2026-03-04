@@ -964,40 +964,7 @@ namespace Database
 					}
 				);
 			}
-			public class UserLobbyPreferences
-			{
-				public int favorite_color = -1;
-				public int favorite_side = -1;
-				public string favorite_map = String.Empty;
-				public int favorite_starting_money = -1;
-				public int favorite_limit_superweapons = -1;
-			}
 
-			public async static Task<UserLobbyPreferences?> GetUserLobbyPreferences(MySQLInstance m_Inst, Int64 user_id)
-			{
-				var res = await m_Inst.Query("SELECT favorite_color, favorite_side, favorite_map, favorite_starting_money, favorite_limit_superweapons FROM users WHERE user_id=@user_id;",
-					new()
-					{
-						{ "@user_id", user_id }
-					}
-				);
-
-				if (res.NumRows() > 0)
-				{
-					CMySQLRow row = res.GetRow(0);
-
-					UserLobbyPreferences lobbyPrefs = new UserLobbyPreferences();
-					lobbyPrefs.favorite_color = Convert.ToInt32(row["favorite_color"]);
-					lobbyPrefs.favorite_side = Convert.ToInt32(row["favorite_side"]);
-					lobbyPrefs.favorite_map = Convert.ToString(row["favorite_map"]) ?? String.Empty;
-					lobbyPrefs.favorite_starting_money = Convert.ToInt32(row["favorite_starting_money"]);
-					lobbyPrefs.favorite_limit_superweapons = Convert.ToInt32(row["favorite_limit_superweapons"]);
-
-					return lobbyPrefs;
-				}
-
-				return null;
-			}
 
 			public async static Task SetFavorite_Color(MySQLInstance m_Inst, Int64 user_id, int favorite_color)
 			{
@@ -1623,106 +1590,6 @@ namespace Database
 							{ "@displayname", display_name},
 						}
 					);
-				}
-			}
-
-            internal static async Task SetUserPortMappingTech(MySQLInstance m_Inst, Int64 user_id, EMappingTech mappingTech, bool bIPV4, bool bIPV6)
-			{
-				await m_Inst.Query("UPDATE users SET portmapping_tech=@mappingTech, ipv4=@ipv4, ipv6=@ipv6 WHERE user_id=@user_id LIMIT 1;",
-					new()
-					{
-						{ "@user_id", user_id},
-						{ "@mapping_tech", mappingTech},
-						{ "@ipv4", bIPV4},
-						{ "@ipv6", bIPV6}
-					}
-				);
-			}
-
-			// Cache for display names (24-hour TTL - names rarely change)
-			public static class DisplayNameCache
-			{
-				private static readonly System.Collections.Concurrent.ConcurrentDictionary<Int64, (string DisplayName, DateTime CachedAt)> s_cache = new();
-				private static readonly TimeSpan s_cacheDuration = TimeSpan.FromHours(24);
-
-				public static async Task<string> GetCachedDisplayName(AppDbContext _db, MySQLInstance m_Inst, Int64 userID)
-				{
-					if (s_cache.TryGetValue(userID, out var cached))
-					{
-						if (DateTime.UtcNow - cached.CachedAt < s_cacheDuration)
-						{
-							return cached.DisplayName;
-						}
-						s_cache.TryRemove(userID, out _);
-					}
-
-					string displayName = await Database.Users.GetDisplayName(_db, userID);
-					s_cache.TryAdd(userID, (displayName, DateTime.UtcNow));
-					return displayName;
-				}
-
-				public static async Task<Dictionary<Int64, string>> GetCachedDisplayNameBulk(MySQLInstance m_Inst, List<Int64> lstUserIDs)
-				{
-					Dictionary<Int64, string> result = new();
-					List<Int64> uncachedIDs = new();
-
-					foreach (Int64 userID in lstUserIDs)
-					{
-						if (s_cache.TryGetValue(userID, out var cached) && DateTime.UtcNow - cached.CachedAt < s_cacheDuration)
-						{
-							result[userID] = cached.DisplayName;
-						}
-						else
-						{
-							s_cache.TryRemove(userID, out _);
-							uncachedIDs.Add(userID);
-						}
-					}
-
-					if (uncachedIDs.Count > 0)
-					{
-						Dictionary<Int64, string> dbResults = await GetDisplayNameBulk(m_Inst, uncachedIDs);
-						foreach (var kvp in dbResults)
-						{
-							s_cache.TryAdd(kvp.Key, (kvp.Value, DateTime.UtcNow));
-							result[kvp.Key] = kvp.Value;
-						}
-					}
-
-					return result;
-				}
-
-				public static void InvalidateCache(Int64 userID)
-				{
-					s_cache.TryRemove(userID, out _);
-				}
-			}
-
-			// Cache for user lobby preferences (1-hour TTL)
-			public static class UserPreferencesCache
-			{
-				private static readonly System.Collections.Concurrent.ConcurrentDictionary<Int64, (UserLobbyPreferences Prefs, DateTime CachedAt)> s_cache = new();
-				private static readonly TimeSpan s_cacheDuration = TimeSpan.FromHours(1);
-
-				public static async Task<UserLobbyPreferences> GetCachedPreferences(MySQLInstance m_Inst, Int64 userID)
-				{
-					if (s_cache.TryGetValue(userID, out var cached))
-					{
-						if (DateTime.UtcNow - cached.CachedAt < s_cacheDuration)
-						{
-							return cached.Prefs;
-						}
-						s_cache.TryRemove(userID, out _);
-					}
-
-					UserLobbyPreferences prefs = await GetUserLobbyPreferences(m_Inst, userID);
-					s_cache.TryAdd(userID, (prefs, DateTime.UtcNow));
-					return prefs;
-				}
-
-				public static void InvalidateCache(Int64 userID)
-				{
-					s_cache.TryRemove(userID, out _);
 				}
 			}
 		}

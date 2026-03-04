@@ -19,6 +19,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using System.Text.Json;
+using static Database.Functions.Auth;
 public class User
 {
 	public Int64 ID { get; set; }
@@ -61,6 +62,15 @@ public class User
 	public string BannedBy { get; set; } = String.Empty;
 	public string BanVerifiedBy { get; set; } = String.Empty;
 	public string BanAliases { get; set; } = String.Empty;
+}
+
+public class UserLobbyPreferences
+{
+	public int favorite_color = -1;
+	public int favorite_side = -1;
+	public string favorite_map = String.Empty;
+	public int favorite_starting_money = -1;
+	public bool favorite_limit_superweapons = false;
 }
 
 public class UserConfiguration : IEntityTypeConfiguration<User>
@@ -129,6 +139,22 @@ namespace Database
 					  .FirstOrDefault()
 				);
 
+		private static readonly Func<AppDbContext, long, Task<UserLobbyPreferences?>> _getUserLobbyPreferencesQuery =
+			EF.CompileAsyncQuery((AppDbContext db, long userId) =>
+				db.Users
+				  .AsNoTracking()
+				  .Where(u => u.ID == userId)
+				  .Select(u => new UserLobbyPreferences
+				  {
+					  favorite_color = u.FavoriteColor,
+					  favorite_side = u.FavoriteSide,
+					  favorite_map = u.FavoriteMap,
+					  favorite_starting_money = u.FavoriteStartingMoney,
+					  favorite_limit_superweapons = u.LimitSuperweapons
+				  })
+				  .FirstOrDefault()
+			);
+
 
 		public static Task<bool> IsUserAdmin(AppDbContext db, long userId)
 		{
@@ -143,6 +169,11 @@ namespace Database
 		public static async Task<string> GetDisplayName(AppDbContext db, long userId)
 		{
 			return await _getDisplayNameQuery(db, userId) ?? string.Empty;
+		}
+
+		public static Task<UserLobbyPreferences?> GetUserLobbyPreferences(AppDbContext db, long userId)
+		{
+			return _getUserLobbyPreferencesQuery(db, userId);
 		}
 	}
 }

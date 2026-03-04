@@ -1150,7 +1150,7 @@ namespace GenOnlineService
 			await DeleteLobby(lobby);
 		}
 
-		public async Task<Int64> CreateLobby(UserSession owningSession, string strOwnerDisplayName, string strName, string strMapName, string strMapPath, bool bMapOfficial, int maxPlayers, string HostIPAddr,
+		public async Task<Int64> CreateLobby(AppDbContext _db, UserSession owningSession, string strOwnerDisplayName, string strName, string strMapName, string strMapPath, bool bMapOfficial, int maxPlayers, string HostIPAddr,
 			UInt16 hostPreferredPort, bool bVanillaTeams, bool bTrackStats, UInt32 default_starting_cash, bool bPassworded, String strPassword, Int16 parentNetworkRoom, bool bAllowObservers,
 			UInt16 maxCamHeight, UInt32 exe_crc, UInt32 ini_crc, ELobbyType lobbyType)
 		{
@@ -1171,8 +1171,8 @@ namespace GenOnlineService
 			UInt32 starting_cash = default_starting_cash;
 			if (lobbyType == ELobbyType.CustomGame)
 			{
-				UserLobbyPreferences? lobbyPrefs = await Database.Functions.Auth.GetUserLobbyPreferences(GlobalDatabaseInstance.g_Database, owningSession.m_UserID);
-				bLimitSuperweapons = lobbyPrefs != null ? lobbyPrefs.favorite_limit_superweapons == 1 : false; // limit superweapons (NOTE: not present in clientside create lobby UI)
+				UserLobbyPreferences? lobbyPrefs = await Database.Users.GetUserLobbyPreferences(_db, owningSession.m_UserID);
+				bLimitSuperweapons = lobbyPrefs != null ? lobbyPrefs.favorite_limit_superweapons : false; // limit superweapons (NOTE: not present in clientside create lobby UI)
 
 				// sane defaults
 				if (lobbyPrefs != null && lobbyPrefs.favorite_starting_money > 0)
@@ -1192,7 +1192,7 @@ namespace GenOnlineService
 			// and join
 			if (lobbyType != ELobbyType.QuickMatch) // quickmatch requires a manual join, because the service creates the lobby for them, so the client knows nothing about it without a manual join
 			{
-				bool bJoined = await JoinLobby(newLobby, owningSession, strOwnerDisplayName, hostPreferredPort, true);
+				bool bJoined = await JoinLobby(_db, newLobby, owningSession, strOwnerDisplayName, hostPreferredPort, true);
 			}
 
 			newLobby.DirtyRetransmit();
@@ -1211,9 +1211,9 @@ namespace GenOnlineService
 			}
 		}
 
-		public async Task<bool> JoinLobby(Lobby lobby, UserSession playerSession, string strDisplayName, UInt16 userPreferredPort, bool bHasMap)
+		public async Task<bool> JoinLobby(AppDbContext _db, Lobby lobby, UserSession playerSession, string strDisplayName, UInt16 userPreferredPort, bool bHasMap)
 		{
-			UserLobbyPreferences? lobbyPrefs = await Database.Functions.Auth.GetUserLobbyPreferences(GlobalDatabaseInstance.g_Database, playerSession.m_UserID);
+			UserLobbyPreferences? lobbyPrefs = await Database.Users.GetUserLobbyPreferences(_db, playerSession.m_UserID);
 
 			if (lobbyPrefs != null)
 			{

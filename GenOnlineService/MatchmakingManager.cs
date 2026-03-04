@@ -762,7 +762,9 @@ static class MatchmakingManager
 							// make a lobby
 							DetermineMap(out string strMapName, out string strMapPath);
 
-							m_LobbyID = await lobbyManager.CreateLobby(dummyHostUser, dummyHostUser.m_strDisplayName, "Quickmatch Lobby", strMapName, strMapPath + ".map",
+							using var scope = ServiceLocator.Services.CreateScope();
+							var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+							m_LobbyID = await lobbyManager.CreateLobby(db, dummyHostUser, dummyHostUser.m_strDisplayName, "Quickmatch Lobby", strMapName, strMapPath + ".map",
 									true, playlist.DesiredPlayers, "", 12345, false, true, 10000, false, String.Empty, -5, false, Constants.g_DefaultCameraMaxHeight, 123, 456, ELobbyType.QuickMatch);
 
 							// tell both to join our lobby

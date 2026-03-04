@@ -719,7 +719,7 @@ namespace GenOnlineService.Controllers
 									_lobbyManager.LeaveAnyLobby(user_id);
 
 									string strDisplayName = await Database.Users.GetDisplayName(_db, user_id);
-									bool bJoinedSuccessfully = await _lobbyManager.JoinLobby(lobby, playerSession, strDisplayName, userPreferredPort, bHasMap);
+									bool bJoinedSuccessfully = await _lobbyManager.JoinLobby(_db, lobby, playerSession, strDisplayName, userPreferredPort, bHasMap);
 
 									result.success = bJoinedSuccessfully;
 
