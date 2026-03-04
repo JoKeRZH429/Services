@@ -143,11 +143,13 @@ namespace GenOnlineService.Controllers
 	{
 		private readonly ILogger<LobbiesController> _logger;
 		private readonly LobbyManager _lobbyManager;
+		private readonly AppDbContext _db;
 
-		public LobbyController(LobbyManager lobbyManager, ILogger<LobbiesController> logger)
+		public LobbyController(LobbyManager lobbyManager, AppDbContext db, ILogger<LobbiesController> logger)
 		{
 			_logger = logger;
 			_lobbyManager = lobbyManager;
+			_db = db;
 		}
 
 		[HttpGet("{lobby_id}")]
@@ -716,7 +718,7 @@ namespace GenOnlineService.Controllers
 									// leave any lobby
 									_lobbyManager.LeaveAnyLobby(user_id);
 
-									string strDisplayName = await Database.Functions.Auth.GetDisplayName(GlobalDatabaseInstance.g_Database, user_id);
+									string strDisplayName = await Database.Users.GetDisplayName(_db, user_id);
 									bool bJoinedSuccessfully = await _lobbyManager.JoinLobby(lobby, playerSession, strDisplayName, userPreferredPort, bHasMap);
 
 									result.success = bJoinedSuccessfully;

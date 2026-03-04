@@ -64,11 +64,14 @@ namespace GenOnlineService.Controllers
 		private static readonly object s_roomsLock = new object();
 
 		private readonly LobbyManager _lobbyManager;
+		private readonly AppDbContext _db;
 
-		public LobbiesController(LobbyManager lobbyManager, ILogger<LobbiesController> logger)
+
+		public LobbiesController(LobbyManager lobbyManager, AppDbContext db, ILogger<LobbiesController> logger)
 		{
 			_logger = logger;
 			_lobbyManager = lobbyManager;
+			_db = db;
 		}
 
 		// Cache rooms.json data to avoid disk I/O on every request
@@ -369,7 +372,7 @@ namespace GenOnlineService.Controllers
 								// cleanup any zombie lobbies
 								await _lobbyManager.CleanupUserLobbiesNotStarted(user_id);
 
-								string strDisplayName = await Database.Functions.Auth.GetDisplayName(GlobalDatabaseInstance.g_Database, user_id);
+								string strDisplayName = await Database.Users.GetDisplayName(_db, user_id);
 								Int64 newLobbyID = await _lobbyManager.CreateLobby(playerSession, strDisplayName, strName, strMapName, strMapPath, bMapOfficial, maxPlayers, strIPAddr,
 									hostPreferredPort, bVanillaTeamsOnly, bTrackStats, starting_cash, bPassworded, strPassword, playerSession.networkRoomID, bAllowObservers, maxCamHeight, exe_crc, ini_crc, ELobbyType.CustomGame);
 

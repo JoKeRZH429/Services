@@ -120,6 +120,15 @@ namespace Database
 				  .Select(u => u.IsBanned)
 				  .FirstOrDefault());
 
+		private static readonly Func<AppDbContext, long, Task<string?>> _getDisplayNameQuery =
+				EF.CompileAsyncQuery((AppDbContext db, long userId) =>
+					db.Users
+					  .AsNoTracking()
+					  .Where(u => u.ID == userId)
+					  .Select(u => u.DisplayName)
+					  .FirstOrDefault()
+				);
+
 
 		public static Task<bool> IsUserAdmin(AppDbContext db, long userId)
 		{
@@ -129,6 +138,11 @@ namespace Database
 		public static Task<bool> IsUserBanned(AppDbContext db, long userId)
 		{
 			return _isUserBannedQuery(db, userId);
+		}
+
+		public static async Task<string> GetDisplayName(AppDbContext db, long userId)
+		{
+			return await _getDisplayNameQuery(db, userId) ?? string.Empty;
 		}
 	}
 }

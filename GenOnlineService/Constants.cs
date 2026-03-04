@@ -150,9 +150,9 @@ namespace GenOnlineService
 	static class WebSocketManager
 	{
 		public static int g_PeakConnectionCount = 0;
-		public static async Task<UserWebSocketInstance> CreateSession(bool bIsReconnect, Int64 ownerID, string client_id, string ipAddr, string strContinent, string strCountry, double dLatitude, double dLongitude, bool bIsAdmin)
+		public static async Task<UserWebSocketInstance> CreateSession(AppDbContext _db, bool bIsReconnect, Int64 ownerID, string client_id, string ipAddr, string strContinent, string strCountry, double dLatitude, double dLongitude, bool bIsAdmin)
 		{
-			string strDisplayName = await Database.Functions.Auth.GetDisplayName(GlobalDatabaseInstance.g_Database, ownerID);
+			string strDisplayName = await Database.Users.GetDisplayName(_db, ownerID);
 
 			// if we have cache data, that means its a reconnect, noraml connections go through login flows which reset cache data
 			UserSession? userCacheData = WebSocketManager.GetDataFromUser(ownerID);

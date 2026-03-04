@@ -1407,25 +1407,6 @@ namespace Database
 				);
 			}
 
-			public async static Task<string> GetDisplayName(MySQLInstance m_Inst, Int64 userID)
-			{
-				var res = await m_Inst.Query("SELECT displayname FROM users WHERE user_id=@user_id LIMIT 1;",
-					new()
-					{
-						{ "@user_id", userID}
-					}
-				);
-
-				if (res != null && res.NumRows() > 0)
-				{
-					var row = res.GetRow(0);
-
-					string? displayname = Convert.ToString(row["displayname"]);
-					return displayname ?? String.Empty;
-				}
-
-				return String.Empty;
-			}
 
 			public async static Task<HashSet<Int64>> GetFriends(MySQLInstance m_Inst, Int64 user_id)
 			{
@@ -1664,7 +1645,7 @@ namespace Database
 				private static readonly System.Collections.Concurrent.ConcurrentDictionary<Int64, (string DisplayName, DateTime CachedAt)> s_cache = new();
 				private static readonly TimeSpan s_cacheDuration = TimeSpan.FromHours(24);
 
-				public static async Task<string> GetCachedDisplayName(MySQLInstance m_Inst, Int64 userID)
+				public static async Task<string> GetCachedDisplayName(AppDbContext _db, MySQLInstance m_Inst, Int64 userID)
 				{
 					if (s_cache.TryGetValue(userID, out var cached))
 					{
@@ -1675,7 +1656,7 @@ namespace Database
 						s_cache.TryRemove(userID, out _);
 					}
 
-					string displayName = await GetDisplayName(m_Inst, userID);
+					string displayName = await Database.Users.GetDisplayName(_db, userID);
 					s_cache.TryAdd(userID, (displayName, DateTime.UtcNow));
 					return displayName;
 				}

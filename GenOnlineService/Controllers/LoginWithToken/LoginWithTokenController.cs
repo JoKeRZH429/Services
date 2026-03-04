@@ -133,7 +133,7 @@ namespace GenOnlineService.Controllers.LoginWithToken
 							string exe_crc = data.ContainsKey("exe_crc") ? data["exe_crc"].ToString() : "NONE";
 							Helpers.RegisterInitialPlayerExeCRC(user_id, exe_crc);
 
-							string strDisplayName = await Database.Functions.Auth.GetDisplayName(GlobalDatabaseInstance.g_Database, user_id);
+							string strDisplayName = await Database.Users.GetDisplayName(_db, user_id);
 							await Database.Functions.Auth.SetUsedLoggedIn(GlobalDatabaseInstance.g_Database, user_id, clientID);
 
 							bool bIsAdmin = await Database.Users.IsUserAdmin(_db, user_id);

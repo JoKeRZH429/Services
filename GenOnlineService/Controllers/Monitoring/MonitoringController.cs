@@ -151,7 +151,7 @@ namespace GenOnlineService.Controllers
 				// db call
 				try
 				{
-					string strDontCare = await Database.Functions.Auth.GetDisplayName(GlobalDatabaseInstance.g_Database, 0);
+					string strDontCare = await Database.Users.GetDisplayName(_db, 0);
 					result.ok = true;
 				}
 				catch

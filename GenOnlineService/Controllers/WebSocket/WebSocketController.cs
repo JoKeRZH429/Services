@@ -32,10 +32,12 @@ namespace GenOnlineService.Controllers
 	public class WebSocketController : ControllerBase
 	{
 		private readonly LobbyManager _lobbyManager;
+		private readonly AppDbContext _db;
 
-		public WebSocketController(LobbyManager lobbyManager)
+		public WebSocketController(LobbyManager lobbyManager, AppDbContext db)
 		{
 			_lobbyManager = lobbyManager;
+			_db = db;
 		}
 
 		private static readonly JsonSerializerOptions JsonOpts = new()
@@ -107,6 +109,7 @@ namespace GenOnlineService.Controllers
 
 			string client_id = firstEntryClientID.Value;
 			UserWebSocketInstance wsSess = await WebSocketManager.CreateSession(
+				_db,
 				bIsReconnect,
 				user_id,
 				client_id,

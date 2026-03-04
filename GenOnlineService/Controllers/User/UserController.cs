@@ -42,11 +42,13 @@ namespace GenOnlineService.Controllers
 	[Route("env/{environment}/contract/{contract_version}/[controller]")]
 	public class UsersController : ControllerBase
 	{
+		private readonly AppDbContext _db;
 		private readonly ILogger<UsersController> _logger;
 
-		public UsersController(ILogger<UsersController> logger)
+		public UsersController(AppDbContext db, ILogger<UsersController> logger)
 		{
 			_logger = logger;
+			_db = db;
 		}
 
 		[Authorize(Roles = "Player")]
@@ -59,7 +61,7 @@ namespace GenOnlineService.Controllers
 
 			if (user_id != -1)
 			{
-				string strDisplayName = await Database.Functions.Auth.GetDisplayName(GlobalDatabaseInstance.g_Database, user_id);
+				string strDisplayName = await Database.Users.GetDisplayName(_db, user_id);
 
 				result.display_name = strDisplayName;
 				result.user_id = user_id;
