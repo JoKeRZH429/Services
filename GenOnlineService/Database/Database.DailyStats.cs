@@ -1,4 +1,24 @@
+/*
+**    GeneralsOnline Game Services - Backend Services for Command & Conquer Generals Online: Zero Hour
+**    Copyright (C) 2025  GeneralsOnline Development Team
+**
+**    This program is free software: you can redistribute it and/or modify
+**    it under the terms of the GNU Affero General Public License as
+**    published by the Free Software Foundation, either version 3 of the
+**    License, or (at your option) any later version.
+**
+**    This program is distributed in the hope that it will be useful,
+**    but WITHOUT ANY WARRANTY; without even the implied warranty of
+**    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+**    GNU Affero General Public License for more details.
+**
+**    You should have received a copy of the GNU Affero General Public License
+**    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using System.Text.Json;
 
 // TODO_EFCORE: When updating this, make sure we preserve old ON DUPLICATE behavior, to overwrite the old data since day_of_year key will be re-used
 public class DailyStat
@@ -20,6 +40,29 @@ public class DailyStatsStructure
 	public int[] wins { get; set; } = new int[12] { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 }
 
+public class DailyStatsConfiguration : IEntityTypeConfiguration<DailyStat>
+{
+	public void Configure(EntityTypeBuilder<DailyStat> builder)
+	{
+		builder.ToTable("daily_stats");
+
+		// prim key
+		builder.HasKey(e => e.DayOfYear);
+
+		builder.Property(e => e.DayOfYear).HasColumnName("day_of_year");
+
+		// TODO_EFCORE: use column type json later (needs db update)
+
+		builder.Property(e => e.Stats)
+			.HasColumnName("stats_structure")
+			.HasColumnType("longtext")
+			.HasConversion(
+				v => JsonSerializer.Serialize(v, (JsonSerializerOptions)null),
+				v => JsonSerializer.Deserialize<DailyStatsStructure>(v, (JsonSerializerOptions)null)
+			);
+	}
+}
+
 public static class DailyStatsManager
 {
 	public static DailyStat g_StatsContainer = new();
@@ -38,8 +81,6 @@ public static class DailyStatsManager
 
 	public static async Task SaveToDB(AppDbContext db)
 	{
-		//await Database.Functions.Auth.StoreDailyStats(GlobalDatabaseInstance.g_Database, g_Stats);
-
 		int day_of_year = DateTime.Now.DayOfYear;
 
 		var entity = await db.DailyStats
