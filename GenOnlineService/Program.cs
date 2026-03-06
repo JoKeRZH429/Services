@@ -289,6 +289,17 @@ namespace GenOnlineService
 			return Convert.ToInt64(controller.User.Claims.First().Value);
 		}
 
+		public static List<string> GetRoles(ControllerBase controller)
+		{
+			var roles = controller.User.Claims.Where(c => c.Type == ClaimTypes.Role || c.Type == "role").Select(c => c.Value).ToList();
+			return roles;
+		}
+
+		public static bool IsAdmin(ControllerBase controller)
+		{
+			return controller.User.IsInRole("Admin");
+		}
+
 		public static KnownClients.EKnownClients GetClientID(ControllerBase controller)
 		{
 			var first = controller.User.FindFirst("client_id");
@@ -477,6 +488,9 @@ namespace GenOnlineService
 					new Claim("client_id", knownClientID.ToString()),
 					new Claim("session_type", ((int)sessionType).ToString())
 				};
+
+				// everyone gets the player role
+				claims.Add(new Claim(ClaimTypes.Role, "Player"));
 
 				if (sessionType == EUserSessionType.GameClient)
 				{
