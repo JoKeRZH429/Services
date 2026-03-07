@@ -485,7 +485,7 @@ namespace GenOnlineService
 					new Claim(JwtRegisteredClaimNames.Name, displayname),
 					new Claim(JwtRegisteredClaimNames.Address, ipAddr),
 					new Claim(JwtRegisteredClaimNames.Typ, ((int)tokenType).ToString()),
-					new Claim("client_id", knownClientID.ToString()),
+					new Claim("client_id", ((int)knownClientID).ToString()),
 					new Claim("session_type", ((int)sessionType).ToString())
 				};
 
