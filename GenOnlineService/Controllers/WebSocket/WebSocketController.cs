@@ -471,7 +471,7 @@ namespace GenOnlineService.Controllers
 
 						if (nameChangeRequest.name.Length >= 3 && nameChangeRequest.name.Length <= 16)
 						{
-							await Database.Functions.Lobby.UpdateDisplayName(GlobalDatabaseInstance.g_Database, sourceUserSession.m_UserID, nameChangeRequest.name);
+							await Database.Users.SetDisplayName(_db, sourceUserSession.m_UserID, nameChangeRequest.name);
 							sourceUserData.m_strDisplayName = nameChangeRequest.name;
 							await WebSocketManager.MarkRoomMemberListAsDirty(sourceUserSession.networkRoomID);
 						}

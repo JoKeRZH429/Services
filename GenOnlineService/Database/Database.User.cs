@@ -16,10 +16,20 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using GenOnlineService;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using System.Text.Json;
 using static Database.Functions.Auth;
+
+public class PendingLogin
+{
+	public Int64 UserID { get; set; }
+
+	public DateTime Created { get; set; } = DateTime.UnixEpoch;
+	public EPendingLoginState State { get; set; } = EPendingLoginState.None;
+	public string LoginCode { get; set; } = String.Empty;
+}
 
 public class UserDevice
 {
@@ -88,6 +98,20 @@ public class UserLobbyPreferences
 	public bool favorite_limit_superweapons = false;
 }
 
+// TODO_EFCORE: add index for code
+public class PendingLoginConfiguration : IEntityTypeConfiguration<PendingLogin>
+{
+	public void Configure(EntityTypeBuilder<PendingLogin> builder)
+	{
+		builder.ToTable("pending_logins");
+
+		builder.Property(e => e.UserID).HasColumnName("user_id");
+		builder.Property(e => e.LoginCode).HasColumnName("code").HasColumnType("varchar(32)");
+		builder.Property(e => e.State).HasColumnName("state").HasColumnType("int(1)");
+		builder.Property(e => e.Created).HasColumnName("created");
+	}
+}
+
 public class UserDevicesConfiguration : IEntityTypeConfiguration<UserDevice>
 {
 	public void Configure(EntityTypeBuilder<UserDevice> builder)
@@ -147,6 +171,48 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
 
 namespace Database
 {
+	public static class PendingLogins
+	{
+		private static readonly Func<AppDbContext, string, Task<long?>> GetUserIdFromCode =
+		EF.CompileAsyncQuery(
+			(AppDbContext db, string code) =>
+				db.PendingLogins
+				  .Where(p => p.LoginCode == code)
+				  .Select(p => (long?)p.UserID)
+				  .FirstOrDefault()
+		);
+
+		public static async Task Cleanup(AppDbContext db, bool startup)
+		{
+			TimeSpan threshold = startup ? TimeSpan.FromSeconds(1) : TimeSpan.FromMinutes(5);
+
+			DateTime cutoff = DateTime.UtcNow - threshold;
+
+			await db.PendingLogins
+				.Where(p => p.Created <= cutoff)
+				.ExecuteDeleteAsync();
+		}
+
+		public static async Task<long> GetUserIDFromPendingLogin(AppDbContext db, string gameCode)
+		{
+			gameCode = gameCode.ToUpper();
+
+			var result = await GetUserIdFromCode(db, gameCode);
+
+			return result ?? -1;
+		}
+
+		public static async Task CleanupPendingLogin(AppDbContext db, string gameCode)
+		{
+			gameCode = gameCode.ToUpper();
+
+			await db.PendingLogins
+				.Where(p => p.LoginCode == gameCode)
+				.ExecuteDeleteAsync();
+		}
+
+	}
+
 	public static class UserDevices
 	{
 		public static readonly Func<AppDbContext, long, string, string, string, Task<UserDevice?>> FindDevice =
@@ -203,6 +269,15 @@ namespace Database
 
 	public static class Users
 	{
+		private static readonly Func<AppDbContext, long, Task<EloData?>> GetEloData =
+				EF.CompileAsyncQuery(
+					(AppDbContext db, long userId) =>
+						db.Users
+						  .Where(u => u.ID == userId)
+						  .Select(u => new EloData(u.EloRating, u.EloNumberOfMatches))
+						  .FirstOrDefault()
+				);
+
 		private static readonly Func<AppDbContext, long, Task<bool>> _isUserAdminQuery =
 			EF.CompileAsyncQuery((AppDbContext db, long userId) =>
 				db.Users
@@ -244,6 +319,36 @@ namespace Database
 				  .FirstOrDefault()
 			);
 
+#if DEBUG
+		public static readonly Func<AppDbContext, long, Task<bool>> UserExists =
+        EF.CompileAsyncQuery(
+            (AppDbContext db, long userId) =>
+                db.Users.Any(u => u.ID == userId)
+        );
+
+		internal static async Task CreateUserIfNotExists_DevAccount(
+		AppDbContext db, long userId, string displayName)
+		{
+			// Normalize input
+			displayName = displayName?.Trim();
+
+			// Fast existence check
+			bool exists = await UserExists(db, userId);
+
+			if (!exists)
+			{
+				db.Users.Add(new User
+				{
+					ID = userId,
+					AccountType = EAccountType.DevAccount,
+					DisplayName = displayName
+				});
+
+				await db.SaveChangesAsync();
+			}
+		}
+
+#endif
 
 		public static Task<bool> IsUserAdmin(AppDbContext db, long userId)
 		{
@@ -254,6 +359,7 @@ namespace Database
 		{
 			return _isUserBannedQuery(db, userId);
 		}
+
 
 		public static async Task<string> GetDisplayName(AppDbContext db, long userId)
 		{
@@ -275,6 +381,17 @@ namespace Database
 			await db.Users.Where(u => u.ID == userId).ExecuteUpdateAsync(setters => setters.SetProperty(u => u.LimitSuperweapons, bLimitSuperweapons));
 		}
 
+		public static async Task<EloData> GetELOData(AppDbContext db, long userId)
+		{
+			var result = await GetEloData(db, userId);
+
+			if (result != null)
+				return result;
+
+			return new EloData(EloConfig.BaseRating, 0);
+		}
+
+
 		public static async Task SetFavorite_Map(
 			AppDbContext db,
 			long userId,
@@ -282,6 +399,17 @@ namespace Database
 		{
 			await db.Users.Where(u => u.ID == userId).ExecuteUpdateAsync(setters => setters.SetProperty(u => u.FavoriteMap, strMap));
 		}
+
+		public static async Task UpdateLastLoginData(AppDbContext db, long userId, string ipAddr)
+		{
+			await db.Users
+				.Where(u => u.ID == userId)
+				.ExecuteUpdateAsync(setters => setters
+					.SetProperty(u => u.LastLogin, DateTime.UtcNow)
+					.SetProperty(u => u.LastIPAddress, ipAddr)
+				);
+		}
+
 
 		public static async Task SetFavorite_StartingMoney(
 			AppDbContext db,
@@ -299,6 +427,15 @@ namespace Database
 			await db.Users.Where(u => u.ID == userId).ExecuteUpdateAsync(setters => setters.SetProperty(u => u.FavoriteSide, side));
 		}
 
+		public static async Task SetDisplayName(AppDbContext db, long userId, string newName)
+		{
+			await db.Users
+				.Where(u => u.ID == userId)
+				.ExecuteUpdateAsync(setters => setters
+					.SetProperty(u => u.DisplayName, newName)
+				);
+		}
+
 		public static async Task SetFavorite_Color(
 			AppDbContext db,
 			long userId,
@@ -306,5 +443,16 @@ namespace Database
 		{
 			await db.Users.Where(u => u.ID == userId).ExecuteUpdateAsync(setters => setters.SetProperty(u => u.FavoriteColor, color));
 		}
+
+		public static async Task SaveELOData(AppDbContext db, long userId, EloData newEloData)
+		{
+			await db.Users
+				.Where(u => u.ID == userId)
+				.ExecuteUpdateAsync(setters => setters
+					.SetProperty(u => u.EloRating, newEloData.Rating)
+					.SetProperty(u => u.EloNumberOfMatches, newEloData.NumMatches)
+				);
+		}
+
 	}
 }

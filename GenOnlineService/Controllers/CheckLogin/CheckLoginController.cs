@@ -142,7 +142,7 @@ namespace GenOnlineService.Controllers
 
 
 								// make user
-								await Database.Functions.Auth.CreateUserIfNotExists_DevAccount(GlobalDatabaseInstance.g_Database, user_id, result.display_name);
+								await Database.Users.CreateUserIfNotExists_DevAccount(_db, user_id, result.display_name);
 							}
 
 							bool bIsAdmin = await Database.Users.IsUserAdmin(_db, user_id);
@@ -156,9 +156,7 @@ namespace GenOnlineService.Controllers
 								{
 									EPendingLoginState state = (EPendingLoginState)Convert.ToInt32(sqlRes.GetRow(0)["state"]);
 
-									Int64 user_id = await Database.Functions.Auth.GetUserIDFromPendingLogin(GlobalDatabaseInstance.g_Database, gameCode);
-										//string sess_id = await Database.Functions.Auth.StartSession(GlobalDatabaseInstance.g_Database, user_id, clientID);
-										//string autologin_token = await Database.Functions.Auth.CreateAutoLogin(GlobalDatabaseInstance.g_Database, user_id);
+									Int64 user_id = await Database.PendingLogins.GetUserIDFromPendingLogin(_db, gameCode);
 										string strDisplayName = await Database.Users.GetDisplayName(_db, user_id);
 
 								bool bIsAdmin = await Database.Users.IsUserAdmin(_db, user_id);
@@ -225,7 +223,7 @@ namespace GenOnlineService.Controllers
 										result.ws_uri = null;
 									}
 
-									await Database.Functions.Auth.CleanupPendingLogin(GlobalDatabaseInstance.g_Database, gameCode);
+									await Database.PendingLogins.CleanupPendingLogin(_db, gameCode);
 
 									return result;
 								}
@@ -240,7 +238,7 @@ namespace GenOnlineService.Controllers
 							{
 								result.result = EPendingLoginState.LoginFailed;
 								Response.StatusCode = (int)HttpStatusCode.Forbidden;
-								await Database.Functions.Auth.CleanupPendingLogin(GlobalDatabaseInstance.g_Database, gameCode);
+								await Database.PendingLogins.CleanupPendingLogin(_db, gameCode);
 							}
 #if !DEBUG
 								}

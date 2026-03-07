@@ -228,7 +228,7 @@ namespace GenOnlineService
 				socialContainer.Blocked = await Database.Functions.Auth.GetBlocked(GlobalDatabaseInstance.g_Database, ownerID);
 
 				// get stats
-				PlayerStats GameStats = await Database.Functions.Auth.GetPlayerStats(GlobalDatabaseInstance.g_Database, ownerID);
+				PlayerStats GameStats = await Database.Functions.Auth.GetPlayerStats(_db, GlobalDatabaseInstance.g_Database, ownerID);
 
 				userCacheData = new UserSession(ownerID, sessionType, client_id, strContinent, strCountry, dLatitude, dLongitude);
 				m_dictUserSessions[sessionType][ownerID] = userCacheData;
@@ -275,7 +275,7 @@ namespace GenOnlineService
 			m_dictWebsockets[sessionType][ownerID] = newSess;
 
 			// update last login and last ip
-			await Database.Functions.Auth.UpdateLastLoginData(GlobalDatabaseInstance.g_Database, ownerID, ipAddr);
+			await Database.Users.UpdateLastLoginData(_db, ownerID, ipAddr);
 
             int numSessions = m_dictWebsockets.Count;
 			if (numSessions > g_PeakConnectionCount)

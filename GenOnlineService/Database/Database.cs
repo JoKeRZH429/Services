@@ -29,6 +29,7 @@ public class AppDbContext : DbContext
 	public DbSet<LeaderboardMonthly> LeaderboardMonthly => Set<LeaderboardMonthly>();
 	public DbSet<LeaderboardYearly> LeaderboardYearly => Set<LeaderboardYearly>();
 	public DbSet<ServiceStat> ServiceStats => Set<ServiceStat>();
+	public DbSet<PendingLogin> PendingLogins => Set<PendingLogin>();
 
 	public AppDbContext(DbContextOptions<AppDbContext> options)
 		: base(options)
@@ -47,5 +48,6 @@ public class AppDbContext : DbContext
 		modelBuilder.ApplyConfiguration(new LeaderboardMonthlyConfiguration());
 		modelBuilder.ApplyConfiguration(new LeaderboardYearlyConfiguration());
 		modelBuilder.ApplyConfiguration(new ServiceStatsConfiguration());
+		modelBuilder.ApplyConfiguration(new PendingLoginConfiguration());
 	}
 }

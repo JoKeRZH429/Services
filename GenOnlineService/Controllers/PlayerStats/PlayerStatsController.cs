@@ -69,11 +69,13 @@ namespace GenOnlineService.Controllers
 	[Route("env/{environment}/contract/{contract_version}/[controller]")]
 	public class PlayerStatsController : ControllerBase
 	{
+		private readonly AppDbContext _db;
 		private readonly ILogger<PlayerStatsController> _logger;
 
-		public PlayerStatsController(ILogger<PlayerStatsController> logger)
+		public PlayerStatsController(AppDbContext db, ILogger<PlayerStatsController> logger)
 		{
 			_logger = logger;
+			_db = db;
 		}
 
 		[HttpGet("{userID}")]
@@ -95,7 +97,7 @@ namespace GenOnlineService.Controllers
 			// if user is offline, hit DB, could be a friends list inspection for example
 			if (userData == null)
 			{
-				PlayerStats playerStats = await Database.Functions.Auth.GetPlayerStats(GlobalDatabaseInstance.g_Database, userID);
+				PlayerStats playerStats = await Database.Functions.Auth.GetPlayerStats(_db, GlobalDatabaseInstance.g_Database, userID);
 
 				if (playerStats == null)
 				{

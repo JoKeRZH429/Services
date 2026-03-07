@@ -356,11 +356,13 @@ namespace GenOnlineService
 	{
 		public static IConfiguration? g_Config = null;
 		public static DiscordBot? g_Discord = null;
+
+		// TODO_EFCORE: Do this regularly
 		static async Task DoCleanup(bool bStartup)
 		{
-			await Database.Functions.Auth.Cleanup(GlobalDatabaseInstance.g_Database, bStartup);
-
-			// clean up on startup
+			using var scope = ServiceLocator.Services.CreateScope();
+			var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+			await Database.PendingLogins.Cleanup(db, bStartup);
 		}
 
 		private static Task AdditionalValidation(TokenValidatedContext context)
@@ -947,8 +949,6 @@ namespace GenOnlineService
 			app.UseCors();
 			app.UseAuthentication();
 			app.UseAuthorization();
-
-			await Database.MySQLInstance.TestQuery(GlobalDatabaseInstance.g_Database);
 
 			app.MapControllers();
 

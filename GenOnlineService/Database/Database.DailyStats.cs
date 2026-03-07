@@ -79,6 +79,7 @@ public static class DailyStatsManager
 		}
 	}
 
+	// TODO_EFCORE: This can be optimized
 	public static async Task SaveToDB(AppDbContext db)
 	{
 		int day_of_year = DateTime.Now.DayOfYear;

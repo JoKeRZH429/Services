@@ -429,7 +429,7 @@ namespace Database
                             sharedUserData.GameStats.EloRating = eloPair.Value.Rating;
                             sharedUserData.GameStats.EloMatches = eloPair.Value.NumMatches;
                         }
-                        await Database.Functions.Auth.SaveELOData(GlobalDatabaseInstance.g_Database, eloPair.Key, eloPair.Value);
+                        await Database.Users.SaveELOData(db, eloPair.Key, eloPair.Value);
                     }
                 }
 
@@ -604,16 +604,6 @@ namespace Database
 
 			public static class Lobby
 		{
-			public async static Task UpdateDisplayName(MySQLInstance m_Inst, Int64 playerID, string strNewName)
-			{
-				await m_Inst.Query("UPDATE users SET displayname=@displayname WHERE user_id=@user_id LIMIT 1;",
-				new()
-				{
-						{ "@displayname", strNewName },
-						{ "@user_id", playerID }
-					}
-				);
-			}
 
 			// Called when a lobby is deleted, thats the true end of a match
 			public async static Task CommitLobbyToMatchHistory(MySQLInstance m_Inst, GenOnlineService.Lobby lobby)
@@ -916,25 +906,6 @@ namespace Database
 		// TODO: Cleanup things when a user disconnects, e.g. lobby they're in etc
 		public static class Auth
 		{
-			public async static Task Cleanup(MySQLInstance m_Inst, bool bStartup)
-			{
-				string strTimeString = "00:05:00";
-
-				if (bStartup)
-				{
-					strTimeString = "00:00:01";
-
-				}
-
-				// cleanup unused pending logins
-				await m_Inst.Query("DELETE FROM `pending_logins` WHERE TIMEDIFF(NOW(), created) >= @time_string;",
-					new()
-					{
-						{ "@time_string", strTimeString }
-					}
-				);
-			}
-
 			public async static Task UpdatePlayerStat(MySQLInstance m_Inst, Int64 user_id, int stat_id, int stat_val)
 			{
 				await m_Inst.Query("INSERT INTO user_stats_v2 (user_id, stats) VALUES (@user_id, JSON_OBJECT(@stat_key_raw, @stat_val)) ON DUPLICATE KEY UPDATE stats = JSON_SET(stats, @stat_key_formatted, @stat_val);",
@@ -947,20 +918,6 @@ namespace Database
 					}
 				);
 			}
-
-			public async static Task StoreDailyStats(MySQLInstance m_Inst, DailyStatsStructure stats)
-			{
-				string strJSON = JsonSerializer.Serialize(stats);
-
-                int day_of_year = DateTime.Now.DayOfYear;
-                await m_Inst.Query(String.Format("INSERT INTO daily_stats SET day_of_year=@day_of_year, stats_structure=@stats_structure ON DUPLICATE KEY UPDATE stats_structure=@stats_structure;"),
-                    new()
-                    {
-                    { "@day_of_year", day_of_year },
-                    { "@stats_structure", strJSON }
-                    }
-                );
-            }
 
 			public async static Task StoreConnectionOutcome(MySQLInstance m_Inst, EIPVersion protocol, EConnectionState outcome)
 			{
@@ -1038,49 +995,6 @@ namespace Database
 				);
 			}
 
-			public async static Task SaveELOData(MySQLInstance m_Inst, Int64 user_id, EloData newEloData)
-			{
-                await m_Inst.Query("UPDATE users SET elo_rating=@elo_rating, elo_num_matches=@elo_num_matches WHERE user_id=@user_id LIMIT 1;",
-                    new()
-                    {
-                        { "@user_id", user_id},
-                        { "@elo_rating", newEloData.Rating},
-                        { "@elo_num_matches", newEloData.NumMatches}
-                    }
-                );
-            }
-
-			public async static Task UpdateLastLoginData(MySQLInstance m_Inst, Int64 user_id, string ipAddr)
-			{
-                await m_Inst.Query("UPDATE users SET lastlogin=current_timestamp(), last_ip=@ip_addr WHERE user_id=@user_id LIMIT 1;",
-                new()
-                {
-                    { "@ip_addr", ipAddr },
-                    { "@user_id", user_id }
-                }
-                );
-            }
-
-            public async static Task<EloData> GetELOData(MySQLInstance m_Inst, Int64 user_id)
-			{
-                var res = await m_Inst.Query("SELECT elo_rating, elo_num_matches FROM users WHERE user_id=@user_id LIMIT 1;",
-                new()
-                {
-                    { "@user_id", user_id }
-                }
-                );
-
-                if (res.NumRows() > 0)
-                {
-					CMySQLRow row = res.GetRow(0);
-
-                    EloData retData = new(Convert.ToInt32(row["elo_rating"]), Convert.ToInt32(row["elo_num_matches"]));
-					return retData;
-                }
-
-				return new(EloConfig.BaseRating, 0);
-            }
-
 			public async static Task<Dictionary<Int64, EloData>> GetBulkELOData(MySQLInstance m_Inst, List<Int64> user_ids)
 			{
 				Dictionary<Int64, EloData> results = new();
@@ -1114,10 +1028,10 @@ namespace Database
 				return results;
 			}
 
-			public async static Task<PlayerStats> GetPlayerStats(MySQLInstance m_Inst, Int64 user_id)
+			public async static Task<PlayerStats> GetPlayerStats(AppDbContext _db, MySQLInstance m_Inst, Int64 user_id)
 			{
 				// TODO: Return null if user doesnt actually exist, instead of empty stats
-				EloData eloData = await GetELOData(m_Inst, user_id);
+				EloData eloData = await Database.Users.GetELOData(_db, user_id);
                 PlayerStats ps = new PlayerStats(user_id, eloData.Rating, eloData.NumMatches);
 
                 var res = await m_Inst.Query("SELECT stats FROM user_stats_v2 WHERE user_id=@user_id LIMIT 1;",
@@ -1188,30 +1102,6 @@ namespace Database
 				// TODO: Client needs to handle this... itll start returning 404
 			}
 
-			public async static Task<Int64> GetUserIDFromPendingLogin(MySQLInstance m_Inst, string gameCode)
-			{
-				gameCode = gameCode.ToUpper();
-
-				CMySQLResult res = await m_Inst.Query("SELECT user_id FROM pending_logins WHERE code=@game_code LIMIT 1;",
-					new()
-					{
-						{ "@game_code", gameCode}
-					}
-				);
-
-				if (res.NumRows() > 0)
-				{
-					CMySQLRow row = res.GetRow(0);
-					Int64 user_id = Convert.ToInt64(row["user_id"]);
-					return user_id;
-				}
-
-				return -1;
-			}
-
-			// TODO: How do we stop dev clients connecting to PROD?
-			// TODO: Check more here, like IP, client, etc
-			
 			public async static Task SetUsedLoggedIn(MySQLInstance m_Inst, Int64 userID, KnownClients.EKnownClients clientID, EUserSessionType sessionType)
 			{
 				// TODO_EFCORE: website uses this index as 1 (60hz) to 0 (30hz), update it to use new enum + support new clients, also need to update DB to match
@@ -1234,18 +1124,6 @@ namespace Database
 					UserWebSocketInstance? oldWS = GenOnlineService.WebSocketManager.GetWebSocketForSession(sess);
 					await GenOnlineService.WebSocketManager.DeleteSession(userID, sessionType, oldWS, false);
 				}
-			}
-
-			public static async Task CleanupPendingLogin(MySQLInstance m_Inst, string strGameCode)
-			{
-				strGameCode = strGameCode.ToUpper();
-
-				await m_Inst.Query("DELETE FROM pending_logins WHERE code=@game_code LIMIT 1;",
-					new()
-					{
-						{ "@game_code", strGameCode}
-					}
-				);
 			}
 
 			public async static Task<HashSet<Int64>> GetFriends(MySQLInstance m_Inst, Int64 user_id)
@@ -1436,28 +1314,6 @@ namespace Database
 				Ghost = 2,
 				DevAccount = 3
 			}
-
-			internal static async Task CreateUserIfNotExists_DevAccount(MySQLInstance m_Inst, Int64 user_id, string display_name)
-			{
-				var res = await m_Inst.Query("SELECT user_id FROM users WHERE user_id=@user_id LIMIT 1;",
-					new()
-					{
-						{ "@user_id", user_id}
-					}
-				);
-
-				if (res == null || res.NumRows() == 0) // doesnt exist, create it
-				{
-					await m_Inst.Query("INSERT INTO users(user_id, account_type, displayname) VALUES (@user_id, @account_type, @displayname);",
-						new()
-						{
-							{ "@user_id", user_id},
-							{ "@account_type", EAccountType.DevAccount},
-							{ "@displayname", display_name},
-						}
-					);
-				}
-			}
 		}
 	}
 
@@ -1544,21 +1400,6 @@ namespace Database
 
 		// Written with Interlocked so concurrent threads don't race on a shared DateTime field.
 		private long m_LastQueryTimeTicks = DateTime.Now.Ticks;
-
-		public async Task KeepAlive()
-		{
-			long lastTicks = Interlocked.Read(ref m_LastQueryTimeTicks);
-			double timeSinceLastQueryMs = TimeSpan.FromTicks(DateTime.Now.Ticks - lastTicks).TotalMilliseconds;
-			if (timeSinceLastQueryMs > 300000)
-			{
-				await Query("SELECT user_id FROM users LIMIT 1;", null).ConfigureAwait(false);
-			}
-		}
-
-		public async static Task TestQuery(MySQLInstance m_Inst)
-		{
-			await m_Inst.Query("SELECT * FROM users LIMIT 1", null);
-		}
 
 		public async Task<bool> Initialize(WebApplicationBuilder builder, bool bIsStartup = true)
 		{

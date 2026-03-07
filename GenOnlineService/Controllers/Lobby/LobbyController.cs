@@ -428,7 +428,7 @@ namespace GenOnlineService.Controllers
 									lobby.ResetReadyStates();
 								}
 
-								if (field == ELobbyUpdateField.LOBBY_MAP) // TODO_NGMP: We should enforce hos for some of these updates
+								if (field == ELobbyUpdateField.LOBBY_MAP)
 								{
 									if (data.ContainsKey("map")
 										&& data.ContainsKey("map_path")
@@ -586,7 +586,7 @@ namespace GenOnlineService.Controllers
 										}
 									}
 								}
-								else if (field == ELobbyUpdateField.AI_TEAM) // TODO: these funcs should check the slot is ACTUALLY AI, host could abuse it to change others teams etc...
+								else if (field == ELobbyUpdateField.AI_TEAM)
 								{
 									if (data.ContainsKey("slot")
 										&& data.ContainsKey("team"))
@@ -604,12 +604,12 @@ namespace GenOnlineService.Controllers
 										}
 									}
 								}
-								else if (field == ELobbyUpdateField.AI_START_POS) // TODO: these funcs should check the slot is ACTUALLY AI, host could abuse it to change others teams etc...
+								else if (field == ELobbyUpdateField.AI_START_POS)
 								{
 									if (data.ContainsKey("slot")
 										&& data.ContainsKey("start_pos"))
 									{
-										// TODO: All these AI funcs should check the player being operated upon is AI, otherwise host could use fiddler to alter other users
+
 										int slot = data["slot"].GetInt32();
 										int start_pos = data["start_pos"].GetInt32();
 
