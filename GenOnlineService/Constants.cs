@@ -976,8 +976,10 @@ namespace GenOnlineService
 
 		public void UpdateSessionLobbyID(Int64 newLobbyID)
 		{
-			// TODO_EFCORE: Only if game client
-			currentLobbyID = newLobbyID;
+			if (m_sessionType == EUserSessionType.GameClient)
+			{
+				currentLobbyID = newLobbyID;
+			}
 		}
 
 		// network room
