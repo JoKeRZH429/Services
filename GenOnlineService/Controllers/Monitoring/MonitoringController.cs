@@ -120,12 +120,18 @@ namespace GenOnlineService.Controllers
 
 			// TODO_QUICKMATCH: We chekc maps are big enough, but the reverse needs checked too - dont let 8 playrs join a 6-8 ffa if only map is defcon6 for example
 
-			// TODO_EFCORE: People can be isgned in multiple times, should we show all of them in the count? or what
+			HashSet<Int64> setUsersAlreadyProcessed = new();
 			ConcurrentDictionary<EUserSessionType, ConcurrentDictionary<Int64, UserSession>> allData = WebSocketManager.GetUserDataCache();
 			foreach (var sessionDataPerClientType in allData)
 			{
 				foreach (var sessionData in sessionDataPerClientType.Value)
 				{
+					if (setUsersAlreadyProcessed.Contains(sessionData.Value.m_UserID))
+					{
+						continue;
+					}
+					setUsersAlreadyProcessed.Add(sessionData.Value.m_UserID);
+
 					SharedUserData? userSharedData = WebSocketManager.GetSharedDataForUser(sessionData.Value.m_UserID);
 
 					if (userSharedData != null)
