@@ -84,7 +84,7 @@ public static class DailyStatsManager
 	{
 		int day_of_year = DateTime.Now.DayOfYear;
 
-		var entity = await db.DailyStats
+		var entity = await db.DailyStats.AsTracking()
 			.FirstOrDefaultAsync(x => x.DayOfYear == day_of_year);
 
 		// Insert if new, otherwise update

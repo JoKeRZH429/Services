@@ -387,7 +387,7 @@ namespace Database
 
                     // initialize data with bulk query (1 query instead of N)
                     List<Int64> userIds = lstMembers.Select(m => m.user_id).ToList();
-                    dictEloData = await Database.Functions.Auth.GetBulkELOData(GlobalDatabaseInstance.g_Database, userIds);
+                    dictEloData = await Database.Users.GetBulkELOData(db, userIds);
 
                     foreach (MatchdataMemberModel member in lstMembers)
                     {
@@ -560,45 +560,6 @@ namespace Database
 					}
 
                 }
-			}
-
-			public async static Task CreateUserEntriesIfNotExists(MySQLInstance m_Inst, Int64 playerID)
-			{
-				int dayOfYear = DateTime.UtcNow.DayOfYear;
-				int monthOfYear = DateTime.UtcNow.Month;
-				int year = DateTime.UtcNow.Year;
-
-				// OK to try and insert here, will fail if key combination already exists
-				await m_Inst.Query("INSERT IGNORE INTO leaderboard_daily SET user_id=@user_id, points=@points, day_of_year=@day_of_year, year=@year, wins=0, losses=0;",
-				new()
-				{
-						{ "@user_id", playerID },
-						{ "@points", EloConfig.BaseRating },
-						{ "@day_of_year", dayOfYear },
-						{ "@year", year }
-					}
-				);
-
-				// Month
-				await m_Inst.Query("INSERT IGNORE INTO leaderboard_monthly SET user_id=@user_id, points=@points, month_of_year=@month_of_year, year=@year, wins=0, losses=0;",
-				new()
-				{
-						{ "@user_id", playerID },
-						{ "@points", EloConfig.BaseRating },
-						{ "@month_of_year", monthOfYear },
-						{ "@year", year }
-					}
-				);
-
-				// Year
-				await m_Inst.Query("INSERT IGNORE INTO leaderboard_yearly SET user_id=@user_id, points=@points, year=@year, wins=0, losses=0;",
-				new()
-				{
-						{ "@user_id", playerID },
-						{ "@points", EloConfig.BaseRating },
-						{ "@year", year }
-					}
-				);
 			}
 		}
 
@@ -993,39 +954,6 @@ namespace Database
 						{ "@day_of_year", day_of_year }
 					}
 				);
-			}
-
-			public async static Task<Dictionary<Int64, EloData>> GetBulkELOData(MySQLInstance m_Inst, List<Int64> user_ids)
-			{
-				Dictionary<Int64, EloData> results = new();
-				
-				if (user_ids == null || user_ids.Count == 0)
-				{
-					return results;
-				}
-
-				// Build IN clause with parameters
-				string inClause = string.Join(",", user_ids);
-				var res = await m_Inst.Query($"SELECT user_id, elo_rating, elo_num_matches FROM users WHERE user_id IN ({inClause});", null);
-
-				foreach (var row in res.GetRows())
-				{
-					Int64 userId = Convert.ToInt64(row["user_id"]);
-					int rating = Convert.ToInt32(row["elo_rating"]);
-					int numMatches = Convert.ToInt32(row["elo_num_matches"]);
-					results[userId] = new EloData(rating, numMatches);
-				}
-
-				// Fill in default values for users not found
-				foreach (Int64 userId in user_ids)
-				{
-					if (!results.ContainsKey(userId))
-					{
-						results[userId] = new EloData(EloConfig.BaseRating, 0);
-					}
-				}
-
-				return results;
 			}
 
 			public async static Task<PlayerStats> GetPlayerStats(AppDbContext _db, MySQLInstance m_Inst, Int64 user_id)
@@ -1476,11 +1404,16 @@ namespace Database
 					SslMode = MySqlSslMode.Preferred
 				};
 
+				// TODO_EFCORE: Consider use of ExecuteDeleteAsync and options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
+				// TODO_EFCORE: Move to AddPooledDbContextFactory instead and use private readonly IDbContextFactory<AppDbContext> _factory;
 				builder.Services.AddDbContext<AppDbContext>(options =>
 				{
 					options.UseMySql(
 						csb.ConnectionString,
 						ServerVersion.AutoDetect(csb.ConnectionString));
+
+					options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
+
 				});
 
 			}

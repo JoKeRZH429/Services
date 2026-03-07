@@ -319,6 +319,38 @@ namespace Database
 				  .FirstOrDefault()
 			);
 
+		private static readonly Func<AppDbContext, List<long>, IAsyncEnumerable<User>> _compiledBulkQuery =
+			EF.CompileAsyncQuery(
+				(AppDbContext db, List<long> ids) =>
+					db.Users.Where(u => ids.Contains(u.ID))
+			);
+
+
+		public static async Task<Dictionary<long, EloData>> GetBulkELOData(
+	AppDbContext db, List<long> userIds)
+		{
+			Dictionary<long, EloData> results = new();
+
+			if (userIds == null || userIds.Count == 0)
+				return results;
+
+			// Execute compiled query
+			await foreach (var u in _compiledBulkQuery(db, userIds))
+			{
+				results[u.ID] = new EloData(u.EloRating, u.EloNumberOfMatches);
+			}
+
+			// Fill missing users with defaults
+			foreach (var id in userIds)
+			{
+				if (!results.ContainsKey(id))
+					results[id] = new EloData(EloConfig.BaseRating, 0);
+			}
+
+			return results;
+		}
+
+
 #if DEBUG
 		public static readonly Func<AppDbContext, long, Task<bool>> UserExists =
         EF.CompileAsyncQuery(

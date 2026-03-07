@@ -55,10 +55,10 @@ namespace Database
 {
 	public static class ServiceStats
 	{
-		public static readonly Func<AppDbContext, int, int, Task<ServiceStat?>> FindStat =
+		public static readonly Func<AppDbContext, int, int, Task<ServiceStat?>> FindStatTracked =
 		EF.CompileAsyncQuery(
 			(AppDbContext db, int day, int hour) =>
-				db.ServiceStats.FirstOrDefault(s =>
+				db.ServiceStats.AsTracking().FirstOrDefault(s =>
 					s.DayOfYear == day &&
 					s.HourOfDay == hour)
 		);
@@ -77,7 +77,7 @@ namespace Database
 			int lobbies_peak)
 		{
 			// UPSERT logic using precompiled query
-			var existing = await FindStat(db, day_of_year, hour_of_day);
+			var existing = await FindStatTracked(db, day_of_year, hour_of_day);
 
 			if (existing == null)
 			{
@@ -99,7 +99,8 @@ namespace Database
 				existing.LobbiesPeak = Math.Max(existing.LobbiesPeak, lobbies_peak);
 			}
 
-			await db.SaveChangesAsync();
+			// NOTE: duplicate, unnecessary
+			//await db.SaveChangesAsync();
 
 			// DELETE old rows (precompiled)
 			int cutoff = day_of_year - 30;

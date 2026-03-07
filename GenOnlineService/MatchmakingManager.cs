@@ -757,7 +757,9 @@ static class MatchmakingManager
 							if (memberSession != null)
 							{
 								// create lb data if necessary
-								await Database.Functions.Leaderboards.CreateUserEntriesIfNotExists(GlobalDatabaseInstance.g_Database, memberSession.m_UserID);
+								using var scope = ServiceLocator.Services.CreateScope();
+								var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+								await Database.Leaderboards.CreateUserEntriesIfNotExists(db, memberSession.m_UserID);
 
 								if (dummyHostUser == null)
 								{

@@ -240,6 +240,63 @@ namespace Database
 				);
 		}
 
+		public static async Task CreateUserEntriesIfNotExists(AppDbContext db, long playerId)
+		{
+			int dayOfYear = DateTime.UtcNow.DayOfYear;
+			int monthOfYear = DateTime.UtcNow.Month;
+			int year = DateTime.UtcNow.Year;
+
+			var daily = new LeaderboardDaily
+			{
+				UserId = playerId,
+				Points = EloConfig.BaseRating,
+				DayOfYear = dayOfYear,
+				Year = year,
+				Wins = 0,
+				Losses = 0
+			};
+
+			var monthly = new LeaderboardMonthly
+			{
+				UserId = playerId,
+				Points = EloConfig.BaseRating,
+				MonthOfYear = monthOfYear,
+				Year = year,
+				Wins = 0,
+				Losses = 0
+			};
+
+			var yearly = new LeaderboardYearly
+			{
+				UserId = playerId,
+				Points = EloConfig.BaseRating,
+				Year = year,
+				Wins = 0,
+				Losses = 0
+			};
+
+			db.Add(daily);
+			db.Add(monthly);
+			db.Add(yearly);
+
+			try
+			{
+				await db.SaveChangesAsync();
+			}
+			catch (DbUpdateException ex)
+			{
+				// Ignore duplicate key errors (INSERT IGNORE behavior)
+				if (!IsDuplicateKeyException(ex))
+					throw;
+			}
+		}
+
+		private static bool IsDuplicateKeyException(DbUpdateException ex)
+		{
+			return ex.InnerException?.Message.Contains("Duplicate entry") == true;
+		}
+
+
 		private static async Task<List<LeaderboardRow>> MaterializeAsync(IAsyncEnumerable<LeaderboardRow> source)
 		{
 			var list = new List<LeaderboardRow>();
