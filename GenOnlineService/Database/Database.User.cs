@@ -174,6 +174,23 @@ namespace Database
 {
 	public static class PendingLogins
 	{
+		private static readonly Func<AppDbContext, string, Task<EPendingLoginState?>> _getPendingLoginState =
+	EF.CompileAsyncQuery(
+		(AppDbContext db, string code) =>
+			db.PendingLogins
+			  .Where(p => p.LoginCode == code)
+			  .Select(p => (EPendingLoginState?)p.State)
+			  .FirstOrDefault()
+	);
+
+		public static async Task<EPendingLoginState?> GetPendingLoginState(AppDbContext db, string gameCode)
+		{
+			string code = gameCode.ToUpper();
+			return await _getPendingLoginState(db, code);
+		}
+
+
+
 		private static readonly Func<AppDbContext, string, Task<long?>> GetUserIdFromCode =
 		EF.CompileAsyncQuery(
 			(AppDbContext db, string code) =>

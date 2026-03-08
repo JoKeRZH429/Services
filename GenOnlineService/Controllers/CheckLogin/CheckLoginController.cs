@@ -150,19 +150,16 @@ namespace GenOnlineService.Controllers
 
 							bool bIsAdmin = await Database.Users.IsUserAdmin(db, user_id);
 #else
+							EPendingLoginState? loginState = await Database.PendingLogins.GetPendingLoginState(db, gameCode.ToUpper());
 
-							CMySQLResult sqlRes = await GlobalDatabaseInstance.g_Database.Query("SELECT state FROM pending_logins WHERE code=@game_code LIMIT 1;", new()
-								{
-									{ "@game_code", gameCode.ToUpper()}
-								});
-							if (sqlRes.NumRows() > 0)
-								{
-									EPendingLoginState state = (EPendingLoginState)Convert.ToInt32(sqlRes.GetRow(0)["state"]);
+							if (loginState != null)
+							{
+									EPendingLoginState state = loginState.Value;
 
-									Int64 user_id = await Database.PendingLogins.GetUserIDFromPendingLogin(_db, gameCode);
-										string strDisplayName = await Database.Users.GetDisplayName(_db, user_id);
+									Int64 user_id = await Database.PendingLogins.GetUserIDFromPendingLogin(db, gameCode);
+									string strDisplayName = await Database.Users.GetDisplayName(db, user_id);
 
-								bool bIsAdmin = await Database.Users.IsUserAdmin(_db, user_id);
+								bool bIsAdmin = await Database.Users.IsUserAdmin(db, user_id);
 #endif
 
 							if (state == EPendingLoginState.Waiting)
@@ -244,7 +241,7 @@ namespace GenOnlineService.Controllers
 								await Database.PendingLogins.CleanupPendingLogin(db, gameCode);
 							}
 #if !DEBUG
-								}
+							}
 #endif
 						}
 						else
