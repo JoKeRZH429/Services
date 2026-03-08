@@ -42,7 +42,7 @@ public class ServiceStatsConfiguration : IEntityTypeConfiguration<ServiceStat>
 		builder.ToTable("service_stats");
 
 		// prim key
-		builder.HasKey(e => new { e.DayOfYear, e.HourOfDay, e.PlayerPeak, e.LobbiesPeak });
+		builder.HasKey(e => new { e.DayOfYear, e.HourOfDay });
 
 		builder.Property(e => e.DayOfYear).HasColumnName("day_of_year");
 		builder.Property(e => e.HourOfDay).HasColumnName("hour_of_day");

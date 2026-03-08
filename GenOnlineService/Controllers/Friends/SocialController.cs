@@ -66,11 +66,13 @@ namespace GenOnlineService.Controllers
 	[Route("env/{environment}/contract/{contract_version}/[controller]")]
 	public class SocialController : ControllerBase
 	{
+		private readonly AppDbContext _db;
 		private readonly ILogger<SocialController> _logger;
 
-		public SocialController(ILogger<SocialController> logger)
+		public SocialController(AppDbContext db, ILogger<SocialController> logger)
 		{
 			_logger = logger;
+			_db = db;
 		}
 
 		// Friends/Requests/<id>
@@ -351,7 +353,7 @@ namespace GenOnlineService.Controllers
 			lstCombined.AddRange(setFriends);
 			lstCombined.AddRange(setPendingRequests);
 
-			Dictionary<Int64, string> dictDisplayNames = await Database.Functions.Auth.GetDisplayNameBulk(GlobalDatabaseInstance.g_Database, lstCombined);
+			Dictionary<Int64, string> dictDisplayNames = await Database.Users.GetDisplayNameBulk(_db, lstCombined);
 
 			var options = new JsonSerializerOptions
 			{
@@ -440,7 +442,7 @@ namespace GenOnlineService.Controllers
 			HashSet<Int64> setBlocked = sourceData.GetSocialContainer().Blocked;
 #pragma warning restore CS8602 // Dereference of a possibly null reference.
 
-			Dictionary<Int64, string> dictDisplayNames = await Database.Functions.Auth.GetDisplayNameBulk(GlobalDatabaseInstance.g_Database, setBlocked.ToList());
+			Dictionary<Int64, string> dictDisplayNames = await Database.Users.GetDisplayNameBulk(_db, setBlocked.ToList());
 
 			var options = new JsonSerializerOptions
 			{

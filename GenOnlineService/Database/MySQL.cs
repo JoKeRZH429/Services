@@ -1192,48 +1192,6 @@ namespace Database
 				);
 			}
 
-			public async static Task<Dictionary<Int64, string>> GetDisplayNameBulk(MySQLInstance m_Inst, List<Int64> lstUserIDs)
-			{
-				Dictionary<Int64, string> dictResult = new();
-
-				// Build parameter placeholders
-				var parameters = new List<string>();
-				Dictionary<string, object> dictParams = new();
-
-				for (int i = 0; i < lstUserIDs.Count; i++)
-				{
-					// for query string
-					parameters.Add($"@id{i}");
-
-					// actual param
-					dictParams.Add($"@id{i}", lstUserIDs[i]);
-				}
-
-				var res = await m_Inst.Query($"SELECT user_id, displayname FROM users WHERE user_id IN ({string.Join(",", parameters)})",
-					dictParams
-				);
-
-				foreach (var row in res.GetRows())
-				{
-					Int64 user_id = Convert.ToInt64(row["user_id"]);
-					string? displayname = Convert.ToString(row["displayname"]);
-
-					if (displayname != null)
-					{
-						try
-						{
-							dictResult.Add(user_id, displayname);
-						}
-						catch // probably duplicate
-						{
-
-						}
-					}
-				}
-
-				return dictResult;
-			}
-
 			public enum EAccountType
 			{
 				Unknown = -1,

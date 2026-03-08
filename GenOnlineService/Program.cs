@@ -628,9 +628,6 @@ namespace GenOnlineService
 
 			await GlobalDatabaseInstance.g_Database.Initialize(builder);
 
-			// do a cleanup on startup
-			await DoCleanup(true);
-
 			builder.Services.AddSingleton<LobbyManager>();
 
 			builder.Services.AddRateLimiter(options =>
@@ -951,6 +948,9 @@ namespace GenOnlineService
 			app.UseAuthorization();
 
 			app.MapControllers();
+
+			// do a cleanup on startup
+			await DoCleanup(true);
 
 			// cleanup
 			System.Timers.Timer timerCleanup = new System.Timers.Timer(5000); // 5s tick

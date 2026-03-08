@@ -105,6 +105,8 @@ public class PendingLoginConfiguration : IEntityTypeConfiguration<PendingLogin>
 	{
 		builder.ToTable("pending_logins");
 
+		builder.HasNoKey();
+
 		builder.Property(e => e.UserID).HasColumnName("user_id");
 		builder.Property(e => e.LoginCode).HasColumnName("code").HasColumnType("varchar(32)");
 		builder.Property(e => e.State).HasColumnName("state").HasColumnType("int(1)");
@@ -123,12 +125,12 @@ public class UserDevicesConfiguration : IEntityTypeConfiguration<UserDevice>
 
 		builder.Property(e => e.UserID).HasColumnName("user_id");
 		builder.Property(e => e.HWID_0).HasColumnName("hwid_0").HasColumnType("varchar(128)");
-		builder.Property(e => e.HWID_0).HasColumnName("hwid_1").HasColumnType("varchar(128)");
-		builder.Property(e => e.HWID_0).HasColumnName("hwid_2").HasColumnType("varchar(128)");
-		builder.Property(e => e.HWID_0).HasColumnName("hwid_3").HasColumnType("varchar(50)");
-		builder.Property(e => e.HWID_0).HasColumnName("hwid_4").HasColumnType("varchar(50)");
-		builder.Property(e => e.HWID_0).HasColumnName("hwid_5").HasColumnType("varchar(50)");
-		builder.Property(e => e.HWID_0).HasColumnName("ip_addr").HasColumnType("varchar(45)");
+		builder.Property(e => e.HWID_1).HasColumnName("hwid_1").HasColumnType("varchar(128)");
+		builder.Property(e => e.HWID_2).HasColumnName("hwid_2").HasColumnType("varchar(128)");
+		builder.Property(e => e.HWID_3).HasColumnName("hwid_3").HasColumnType("varchar(50)");
+		builder.Property(e => e.HWID_4).HasColumnName("hwid_4").HasColumnType("varchar(50)");
+		builder.Property(e => e.HWID_5).HasColumnName("hwid_5").HasColumnType("varchar(50)");
+		builder.Property(e => e.IPAddress).HasColumnName("ip_addr").HasColumnType("varchar(45)");
 	}
 }
 
@@ -303,6 +305,18 @@ namespace Database
 					  .FirstOrDefault()
 				);
 
+		private static readonly Func<AppDbContext, List<long>, IAsyncEnumerable<User>> _getUsersByIds =
+		EF.CompileAsyncQuery(
+			(AppDbContext db, List<long> ids) =>
+				db.Users
+				  .Where(u => ids.Contains(u.ID))
+				  .Select(u => new User
+				  {
+					  ID = u.ID,
+					  DisplayName = u.DisplayName
+				  })
+		);
+
 		private static readonly Func<AppDbContext, long, Task<UserLobbyPreferences?>> _getUserLobbyPreferencesQuery =
 			EF.CompileAsyncQuery((AppDbContext db, long userId) =>
 				db.Users
@@ -385,6 +399,21 @@ namespace Database
 		public static Task<bool> IsUserAdmin(AppDbContext db, long userId)
 		{
 			return _isUserAdminQuery(db, userId);
+		}
+
+		public static async Task<Dictionary<long, string>> GetDisplayNameBulk(AppDbContext db, List<long> lstUserIDs)
+		{
+			var dict = new Dictionary<long, string>(lstUserIDs.Count);
+
+			await foreach (var user in _getUsersByIds(db, lstUserIDs))
+			{
+				if (user.DisplayName is not null)
+				{
+					dict[user.ID] = user.DisplayName;
+				}
+			}
+
+			return dict;
 		}
 
 		public static Task<bool> IsUserBanned(AppDbContext db, long userId)
