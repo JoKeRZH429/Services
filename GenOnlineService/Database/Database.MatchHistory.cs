@@ -29,7 +29,6 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
-using static Database.Functions.Lobby;
 
 public class MatchHistoryEntry
 {
@@ -186,7 +185,6 @@ namespace GenOnlineService
 		public int units_lost { get; set; } = 0;           // int(11) DEFAULT NULL
 		public int total_money { get; set; } = 0;          // int(11) DEFAULT NULL
 
-		[JsonConverter(typeof(IntToBoolConverter))]
 		public bool won { get; set; } = false;                // tinyint(4) DEFAULT NULL
 		public List<MemberMetadataModel> metadata { get; set; } = new List<MemberMetadataModel>();
 

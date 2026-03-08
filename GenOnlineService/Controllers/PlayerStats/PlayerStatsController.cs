@@ -99,7 +99,7 @@ namespace GenOnlineService.Controllers
 			if (userData == null)
 			{
 				await using var db = await _dbFactory.CreateDbContextAsync();
-				PlayerStats playerStats = await Database.Functions.Auth.GetPlayerStats(db, GlobalDatabaseInstance.g_Database, userID);
+				PlayerStats playerStats = await Database.UserStats.GetPlayerStats(db, userID);
 
 				if (playerStats == null)
 				{
@@ -211,7 +211,8 @@ namespace GenOnlineService.Controllers
 												}
 											}
 
-											await Database.Functions.Auth.UpdatePlayerStat(GlobalDatabaseInstance.g_Database, user_id, stat_id, statValInt);
+											await using var db = await _dbFactory.CreateDbContextAsync();
+											await Database.UserStats.UpdatePlayerStat(db, user_id, stat_id, statValInt);
 											//Console.WriteLine("Stat {0} is valid and is {1}", (EStatIndex)stat_id, statValInt);
 											// game tracks the progress, so these are full writes, not incremental
 

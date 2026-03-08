@@ -48,49 +48,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using static Database.Functions;
 using static Database.Functions.Auth;
-using static Database.Functions.Lobby;
-
-
 
 namespace Database
 {
 	public static class Functions
 	{
-			public static class Lobby
-		{
-			
-
-			
-			public class IntToBoolConverter : JsonConverter<bool>
-			{
-				public override bool Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-				{
-					return reader.GetInt32() != 0;
-				}
-
-				public override void Write(Utf8JsonWriter writer, bool value, JsonSerializerOptions options)
-				{
-					writer.WriteNumberValue(value ? 1 : 0);
-				}
-			}
-		}
-
 		// TODO: Cleanup things when a user disconnects, e.g. lobby they're in etc
 		public static class Auth
 		{
-			public async static Task UpdatePlayerStat(MySQLInstance m_Inst, Int64 user_id, int stat_id, int stat_val)
-			{
-				await m_Inst.Query("INSERT INTO user_stats_v2 (user_id, stats) VALUES (@user_id, JSON_OBJECT(@stat_key_raw, @stat_val)) ON DUPLICATE KEY UPDATE stats = JSON_SET(stats, @stat_key_formatted, @stat_val);",
-					new()
-					{
-						{ "@user_id", user_id },
-						{ "@stat_key_raw", stat_id },
-						{ "@stat_key_formatted", String.Format("$.{0}", stat_id) },
-						{ "@stat_val", stat_val }
-					}
-				);
-			}
-
 			public async static Task StoreConnectionOutcome(MySQLInstance m_Inst, EIPVersion protocol, EConnectionState outcome)
 			{
 				if (outcome != EConnectionState.CONNECTED_DIRECT && outcome != EConnectionState.CONNECTED_RELAY && outcome != EConnectionState.CONNECTION_FAILED) // states we dont track
@@ -167,44 +132,7 @@ namespace Database
 				);
 			}
 
-			public async static Task<PlayerStats> GetPlayerStats(AppDbContext _db, MySQLInstance m_Inst, Int64 user_id)
-			{
-				// TODO: Return null if user doesnt actually exist, instead of empty stats
-				EloData eloData = await Database.Users.GetELOData(_db, user_id);
-                PlayerStats ps = new PlayerStats(user_id, eloData.Rating, eloData.NumMatches);
-
-                var res = await m_Inst.Query("SELECT stats FROM user_stats_v2 WHERE user_id=@user_id LIMIT 1;",
-				new()
-				{
-					{ "@user_id", user_id }
-				}
-				);
-
-				if (res.NumRows() == 0)
-				{
-					return ps;
-				}
-
-				string? jsonData = Convert.ToString(res.GetRow(0)["stats"]);
-#pragma warning disable CS8600 // Converting null literal or possible null value to non-nullable type.
-#pragma warning disable CS8604 // Converting null literal or possible null value to non-nullable type.
-				Dictionary<int, int> dictStats = JsonSerializer.Deserialize<Dictionary<int, int>>(jsonData);
-#pragma warning restore CS8604 // Converting null literal or possible null value to non-nullable type.
-#pragma warning restore CS8600 // Converting null literal or possible null value to non-nullable type.
-
-				//foreach (var row in res.GetRows())
-#pragma warning disable CS8602 // Dereference of a possibly null reference.
-				foreach (var statPair in dictStats)
-				{
-					EStatIndex stat_id = (EStatIndex)Convert.ToUInt16(statPair.Key);
-					int stat_value = statPair.Value;
-
-					ps.ProcessFromDB(stat_id, stat_value);
-				}
-#pragma warning restore CS8602 // Dereference of a possibly null reference.
-
-				return ps;
-			}
+			
 
 			public static async Task FullyDestroyPlayerSession(MySQLInstance m_Inst, Int64 user_id, UserSession? userData, bool bMigrateLobbyIfPresent)
 			{

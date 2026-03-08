@@ -31,6 +31,7 @@ public class AppDbContext : DbContext
 	public DbSet<ServiceStat> ServiceStats => Set<ServiceStat>();
 	public DbSet<PendingLogin> PendingLogins => Set<PendingLogin>();
 	public DbSet<MatchHistoryEntry> MatchHistory => Set<MatchHistoryEntry>();
+	public DbSet<UserStatsEntry> UserStats => Set<UserStatsEntry>();
 
 	public AppDbContext(DbContextOptions<AppDbContext> options)
 		: base(options)
@@ -51,5 +52,6 @@ public class AppDbContext : DbContext
 		modelBuilder.ApplyConfiguration(new ServiceStatsConfiguration());
 		modelBuilder.ApplyConfiguration(new PendingLoginConfiguration());
 		modelBuilder.ApplyConfiguration(new MatchHistoryConfiguration());
+		modelBuilder.ApplyConfiguration(new UserStatsConfiguration());
 	}
 }

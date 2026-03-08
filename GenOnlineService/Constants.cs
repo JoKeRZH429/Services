@@ -228,7 +228,7 @@ namespace GenOnlineService
 				socialContainer.Blocked = await Database.Functions.Auth.GetBlocked(GlobalDatabaseInstance.g_Database, ownerID);
 
 				// get stats
-				PlayerStats GameStats = await Database.Functions.Auth.GetPlayerStats(_db, GlobalDatabaseInstance.g_Database, ownerID);
+				PlayerStats GameStats = await Database.UserStats.GetPlayerStats(_db, ownerID);
 
 				userCacheData = new UserSession(ownerID, sessionType, client_id, strContinent, strCountry, dLatitude, dLongitude);
 				m_dictUserSessions[sessionType][ownerID] = userCacheData;

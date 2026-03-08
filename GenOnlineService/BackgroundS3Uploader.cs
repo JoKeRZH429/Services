@@ -8,7 +8,6 @@ using MySqlX.XDevAPI.Common;
 using Sentry.Protocol;
 using System.Collections.Concurrent;
 using System.Net;
-using static Database.Functions.Lobby;
 
 public enum ES3UploadType
 {

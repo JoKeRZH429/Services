@@ -31,7 +31,6 @@ using Amazon.S3;
 using Amazon.S3.Model;
 using System.ComponentModel.DataAnnotations;
 using Org.BouncyCastle.Tls;
-using static Database.Functions.Lobby;
 
 namespace GenOnlineService.Controllers
 {

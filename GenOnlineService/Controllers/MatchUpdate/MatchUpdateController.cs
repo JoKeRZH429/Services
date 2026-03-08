@@ -31,7 +31,6 @@ using System.Net.WebSockets;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
-using static Database.Functions.Lobby;
 
 namespace GenOnlineService.Controllers
 {
