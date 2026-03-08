@@ -35,7 +35,7 @@ using static MatchmakingManager;
 namespace GenOnlineService.Controllers
 {
 	[ApiController]
-	[Authorize(Roles = "Player")]
+	[Authorize(Roles = "GameClient")]
 	[Route("env/{environment}/contract/{contract_version}/[controller]")]
 	public class MatchmakingController : ControllerBase
 	{
@@ -47,7 +47,7 @@ namespace GenOnlineService.Controllers
 		}
 
 		[HttpPut]
-		[Authorize(Roles = "Player")]
+		[Authorize(Roles = "GameClient")]
 		public async Task<APIResult?> Put()
 		{
 			using (var reader = new StreamReader(HttpContext.Request.Body))
@@ -76,9 +76,10 @@ namespace GenOnlineService.Controllers
 						UInt32 ini_crc = data["ini_crc"].GetUInt32();
 
 						Int64 user_id = TokenHelper.GetUserID(this);
-						if (user_id != -1)
+						EUserSessionType sessionType = TokenHelper.GetSessionType(this);
+						if (user_id != -1 && SessionHelpers.SessionTypeHasAccessTo(sessionType, ESessionAccessType.Gameplay))
 						{
-							UserSession? playerSession = WebSocketManager.GetDataFromUser(user_id); ;
+							UserSession? playerSession = WebSocketManager.GetSessionFromUser(user_id, sessionType);
 
 							if (playerSession != null)
 							{
@@ -97,15 +98,16 @@ namespace GenOnlineService.Controllers
 		}
 
 		[HttpPost("Widen")]
-		[Authorize(Roles = "Player")]
+		[Authorize(Roles = "GameClient")]
 		public void Put_Widen()
 		{
 			// TODO_QUICKMATCH: What if a user widens after already being matched? We should probably tell them no
 			// widen the search
 			Int64 user_id = TokenHelper.GetUserID(this);
-			if (user_id != -1)
+			EUserSessionType sessionType = TokenHelper.GetSessionType(this);
+			if (user_id != -1 && SessionHelpers.SessionTypeHasAccessTo(sessionType, ESessionAccessType.Gameplay))
 			{
-				UserSession? playerSession = WebSocketManager.GetDataFromUser(user_id); ;
+				UserSession? playerSession = WebSocketManager.GetSessionFromUser(user_id, sessionType); ;
 
 				if (playerSession != null)
 				{
@@ -115,13 +117,14 @@ namespace GenOnlineService.Controllers
 		}
 
 		[HttpDelete]
-		[Authorize(Roles = "Player")]
+		[Authorize(Roles = "GameClient")]
 		public void Delete()
 		{
 			Int64 user_id = TokenHelper.GetUserID(this);
-			if (user_id != -1)
+			EUserSessionType sessionType = TokenHelper.GetSessionType(this);
+			if (user_id != -1 && SessionHelpers.SessionTypeHasAccessTo(sessionType, ESessionAccessType.Gameplay))
 			{
-				UserSession? playerSession = WebSocketManager.GetDataFromUser(user_id); ;
+				UserSession? playerSession = WebSocketManager.GetSessionFromUser(user_id, sessionType);
 
 				if (playerSession != null)
 				{
@@ -142,7 +145,7 @@ namespace GenOnlineService.Controllers
 
 		// Get playlists
 		[HttpGet("Playlists")]
-		[Authorize(Roles = "Player")]
+		[Authorize(Roles = "GameClient")]
 		public APIResult Get_Playlists()
 		{
 			RouteHandler_GET_Playlists_Result result = new RouteHandler_GET_Playlists_Result();

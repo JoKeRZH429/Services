@@ -45,6 +45,8 @@ namespace GenOnlineService.Controllers.LoginWithToken
 		
 		public string user_id { get; set; } = null; // string provides max compat
 		public string display_name { get; set; } = null;
+		public List<string> roles { get; set; } = new();
+		public KnownClients.EKnownClients client_id { get; set; } = KnownClients.EKnownClients.unknown;
 	}
 
 	[ApiController]
@@ -68,9 +70,12 @@ namespace GenOnlineService.Controllers.LoginWithToken
 			if (user_id != -1)
 			{
 				string strDisplayName = TokenHelper.GetDisplayName(this);
+				KnownClients.EKnownClients client_id = TokenHelper.GetClientID(this);
 
 				result.user_id = user_id.ToString();
 				result.display_name = strDisplayName;
+				result.roles = TokenHelper.GetRoles(this);
+				result.client_id = client_id;
 			}
 
 			return result;
@@ -218,10 +223,10 @@ namespace GenOnlineService.Controllers.LoginWithToken
 						string mwUserID = GetClaimValue(mw_token, "sub");
 
 						Int64 user_id = TokenHelper.GetUserID(this);
-
-						if (user_id != -1)
+						EUserSessionType sessionType = TokenHelper.GetSessionType(this);
+						if (user_id != -1 && SessionHelpers.SessionTypeHasAccessTo(sessionType, ESessionAccessType.Gameplay)) // only game clients should be doing middleware login
 						{
-							UserSession? session = WebSocketManager.GetDataFromUser(user_id);
+							UserSession? session = WebSocketManager.GetSessionFromUser(user_id, sessionType);
 							if (session != null)
 							{
 								session.SetMiddlewareID(mwUserID);

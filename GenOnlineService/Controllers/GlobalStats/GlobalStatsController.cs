@@ -32,7 +32,7 @@ namespace GenOnlineService.Controllers
 			return this.GetType();
 		}
 
-		public DailyStats? globalstats { get; set; } = null;
+		public DailyStatsStructure? globalstats { get; set; } = null;
 	}
 
 	[ApiController]
@@ -47,12 +47,12 @@ namespace GenOnlineService.Controllers
 		}
 
 		[HttpGet(Name = "GlobalStats")]
-		[Authorize(Roles = "Player,Monitor")]
+		[Authorize(Roles = "GameClient,ChatClient,GameLauncher,Monitor")]
 		public APIResult Get()
 		{
 			RouteHandler_GET_GlobalStats_Result result = new RouteHandler_GET_GlobalStats_Result();
 
-			result.globalstats = DailyStatsManager.g_Stats;
+			result.globalstats = DailyStatsManager.g_StatsContainer.Stats;
 
 			return result;
 		}

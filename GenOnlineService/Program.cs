@@ -16,34 +16,35 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using Google.Protobuf.WellKnownTypes;
+using MaxMind.GeoIP2;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.WebSockets;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
+using Org.BouncyCastle.Crypto;
 using Org.BouncyCastle.OpenSsl;
 using Org.BouncyCastle.Pkcs;
 using Org.BouncyCastle.Security;
-using Org.BouncyCastle.Crypto;
-using System.Security.Cryptography.X509Certificates;
-using System.Security.Claims;
-using Microsoft.AspNetCore.Authentication;
-using System.Text;
-using System.Net.Http.Headers;
-using Microsoft.Extensions.Options;
-using System.Text.Encodings.Web;
-using Microsoft.AspNetCore.WebSockets;
-using System.Collections.Concurrent;
-using System.Net.WebSockets;
-using Google.Protobuf.WellKnownTypes;
-using System.Xml;
-using System.Drawing;
-using System.Text.Json;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.IdentityModel.Tokens;
-using System.IdentityModel.Tokens.Jwt;
-using Microsoft.AspNetCore.Mvc;
-using System.Threading.Tasks;
 using Sentry;
-using MaxMind.GeoIP2;
-using Microsoft.AspNetCore.RateLimiting;
+using System.Collections.Concurrent;
+using System.Drawing;
+using System.IdentityModel.Tokens.Jwt;
+using System.Net.Http.Headers;
+using System.Net.WebSockets;
+using System.Security.Claims;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
 using System.Threading.RateLimiting;
+using System.Threading.Tasks;
+using System.Xml;
 
 namespace GenOnlineService
 {
@@ -242,7 +243,11 @@ namespace GenOnlineService
 		{
 			int hourOfDay = DateTime.Now.Hour;
 			// store stats
-			await Database.Functions.ServiceStats.CommitStats(GlobalDatabaseInstance.g_Database, DateTime.Now.DayOfYear, hourOfDay, numPlayers, numLobbies);
+
+			using var scope = ServiceLocator.Services.CreateScope();
+			var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+			await using var db = await factory.CreateDbContextAsync();
+			await Database.ServiceStats.CommitStats(db, DateTime.Now.DayOfYear, hourOfDay, numPlayers, numLobbies);
 		}
 	}
 
@@ -256,6 +261,51 @@ namespace GenOnlineService
 			}
 
 			return Convert.ToInt64(controller.User.Claims.First().Value);
+		}
+
+		public static List<string> GetRoles(ControllerBase controller)
+		{
+			var roles = controller.User.Claims.Where(c => c.Type == ClaimTypes.Role || c.Type == "role").Select(c => c.Value).ToList();
+			return roles;
+		}
+
+		public static bool IsAdmin(ControllerBase controller)
+		{
+			return controller.User.IsInRole("Admin");
+		}
+
+		public static KnownClients.EKnownClients GetClientID(ControllerBase controller)
+		{
+			var first = controller.User.FindFirst("client_id");
+
+			if (int.TryParse(first.Value, out int clientIDInt32))
+			{
+				// Validate if the int corresponds to a defined enum value
+				if (System.Enum.IsDefined(typeof(KnownClients.EKnownClients), clientIDInt32))
+				{
+					KnownClients.EKnownClients knownClientID = (KnownClients.EKnownClients)clientIDInt32;
+					return knownClientID;
+				}
+			}
+
+			return KnownClients.EKnownClients.unknown;
+		}
+
+		public static EUserSessionType GetSessionType(ControllerBase controller)
+		{
+			var first = controller.User.FindFirst("session_type");
+
+			if (int.TryParse(first.Value, out int sessionTypeInt32))
+			{
+				// Validate if the int corresponds to a defined enum value
+				if (System.Enum.IsDefined(typeof(EUserSessionType), sessionTypeInt32))
+				{
+					EUserSessionType sessionType = (EUserSessionType)sessionTypeInt32;
+					return sessionType;
+				}
+			}
+
+			return EUserSessionType.None;
 		}
 
 		public static string GetDisplayName(ControllerBase controller)
@@ -277,11 +327,100 @@ namespace GenOnlineService
 	{
 		public static IConfiguration? g_Config = null;
 		public static DiscordBot? g_Discord = null;
-		static async Task DoCleanup(bool bStartup)
-		{
-			await Database.Functions.Auth.Cleanup(GlobalDatabaseInstance.g_Database, bStartup);
 
-			// clean up on startup
+		// TODO_EFCORE: Do this regularly
+		static async Task DoCleanup(AppDbContext db, bool bStartup)
+		{
+			await Database.PendingLogins.Cleanup(db, bStartup);
+		}
+
+		private static async Task InitializeDatabase(WebApplicationBuilder builder)
+		{
+			// TODO_EFCORE: Check connection immediately like old impl
+			if (Program.g_Config == null)
+			{
+				throw new Exception("Config is null. Check config file exists.");
+			}
+
+			IConfiguration? dbSettings = Program.g_Config.GetSection("Database");
+
+			if (dbSettings == null)
+			{
+				throw new Exception("Database section in config is null / not set in config");
+			}
+
+			string? hostname = dbSettings.GetValue<string>("db_host");
+			string? dbname = dbSettings.GetValue<string>("db_name");
+			string? username = dbSettings.GetValue<string>("db_username");
+			string? password = dbSettings.GetValue<string>("db_password");
+			UInt16? port = dbSettings.GetValue<UInt16>("db_port");
+
+			int? db_min_poolsize = dbSettings.GetValue<int>("db_min_poolsize");
+			int? db_max_poolsize = dbSettings.GetValue<int>("db_max_poolsize");
+			bool? db_use_pooling = dbSettings.GetValue<bool>("db_use_pooling");
+			bool? db_conn_reset = dbSettings.GetValue<bool>("db_conn_reset");
+			int? db_connect_timeout = dbSettings.GetValue<int>("db_connect_timeout");
+			int? db_command_timeout = dbSettings.GetValue<int>("db_command_timeout");
+
+			if (hostname == null)
+			{
+				throw new Exception("DB Hostname is null / not set in config");
+			}
+
+			if (dbname == null)
+			{
+				throw new Exception("DB Hostname is null / not set in config");
+			}
+
+			if (username == null)
+			{
+				throw new Exception("DB Hostname is null / not set in config");
+			}
+
+			if (password == null)
+			{
+				throw new Exception("DB Hostname is null / not set in config");
+			}
+
+			if (port == null)
+			{
+				throw new Exception("DB Hostname is null / not set in config");
+			}
+
+			// TODO_EFCORE: Log exceptions to disk again
+			if (!Directory.Exists("Exceptions"))
+			{
+				Directory.CreateDirectory("Exceptions");
+			}
+
+			// EFCore connect
+			{
+				//var builder = WebApplication.CreateBuilder(args);
+
+				var csb = new MySql.Data.MySqlClient.MySqlConnectionStringBuilder
+				{
+					Server = hostname,
+					Port = (uint)port,
+					Database = dbname,
+					UserID = username,
+					Password = password,
+					ConnectionTimeout = (uint)db_connect_timeout,
+					DefaultCommandTimeout = (uint)db_command_timeout,
+					SslMode = MySql.Data.MySqlClient.MySqlSslMode.Preferred
+				};
+
+				// TODO_EFCORE: Consider use of ExecuteDeleteAsync and options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
+				// TODO_EFCORE: Move to AddPooledDbContextFactory instead and use private readonly IDbContextFactory<AppDbContext> _factory;
+				builder.Services.AddPooledDbContextFactory<AppDbContext>(options =>
+				{
+					options.UseMySql(
+						csb.ConnectionString,
+						ServerVersion.AutoDetect(csb.ConnectionString));
+
+					options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
+
+				});
+			}
 		}
 
 		private static Task AdditionalValidation(TokenValidatedContext context)
@@ -384,7 +523,7 @@ namespace GenOnlineService
 				Refresh
 			}
 
-			public string GenerateToken(string displayname, Int64 userID, string ipAddr, ETokenType tokenType, string client_id, bool bIsAdmin)
+			public string GenerateToken(string displayname, Int64 userID, string ipAddr, ETokenType tokenType, KnownClients.EKnownClients knownClientID, EUserSessionType sessionType, bool bIsAdmin)
 			{
 				var jwtSettings = _configuration.GetSection("JwtSettings");
 
@@ -409,9 +548,29 @@ namespace GenOnlineService
 					new Claim(JwtRegisteredClaimNames.Name, displayname),
 					new Claim(JwtRegisteredClaimNames.Address, ipAddr),
 					new Claim(JwtRegisteredClaimNames.Typ, ((int)tokenType).ToString()),
-					new Claim("client_id", client_id),
-					new Claim(ClaimTypes.Role, "Player")
+					new Claim("client_id", ((int)knownClientID).ToString()),
+					new Claim("session_type", ((int)sessionType).ToString())
 				};
+
+				// everyone gets the player role
+				claims.Add(new Claim(ClaimTypes.Role, "Player"));
+
+				if (sessionType == EUserSessionType.GameClient)
+				{
+					claims.Add(new Claim(ClaimTypes.Role, "GameClient"));
+				}
+				else if (sessionType == EUserSessionType.ChatClient)
+				{
+					claims.Add(new Claim(ClaimTypes.Role, "ChatClient"));
+				}
+				else if (sessionType == EUserSessionType.GameLauncher)
+				{
+					claims.Add(new Claim(ClaimTypes.Role, "GameLauncher"));
+				}
+				else
+				{
+					throw new Exception("Unhandled session type: " + sessionType);
+				}
 
 				if (bIsAdmin)
 				{
@@ -525,12 +684,7 @@ namespace GenOnlineService
 				g_Discord = new DiscordBot();
 			}
 
-			await GlobalDatabaseInstance.g_Database.Initialize();
-
-			// do a cleanup on startup
-			await DoCleanup(true);
-
-
+			builder.Services.AddSingleton<LobbyManager>();
 
 			builder.Services.AddRateLimiter(options =>
 			{
@@ -632,11 +786,17 @@ namespace GenOnlineService
 						return false;
 					}));
 
-				options.AddPolicy("PlayerOrMonitorOrApiKey", policy =>
+				options.AddPolicy("AnyClientOrMonitorOrApiKey", policy =>
 					policy.RequireAssertion(context =>
 					{
 						// Check roles
-						if (context.User.IsInRole("Player"))
+						if (context.User.IsInRole("GameClient"))
+							return true;
+
+						if (context.User.IsInRole("ChatClient"))
+							return true;
+
+						if (context.User.IsInRole("GameLauncher"))
 							return true;
 
 						if (context.User.IsInRole("Monitor"))
@@ -804,7 +964,11 @@ namespace GenOnlineService
 
 			});
 
+			// add DB
+			await InitializeDatabase(builder);
+
 			var app = builder.Build();
+			ServiceLocator.Services = app.Services;
 
 			app.UseRateLimiter();
 
@@ -842,9 +1006,8 @@ namespace GenOnlineService
 			app.UseAuthentication();
 			app.UseAuthorization();
 
-			await Database.MySQLInstance.TestQuery(GlobalDatabaseInstance.g_Database);
-
 			app.MapControllers();
+
 
 			// cleanup
 			System.Timers.Timer timerCleanup = new System.Timers.Timer(5000); // 5s tick
@@ -855,10 +1018,12 @@ namespace GenOnlineService
 				{
 					await WebSocketManager.CheckForTimeouts();
 
-					int numLobbies = LobbyManager.GetNumLobbies();
+					var lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
+
+					int numLobbies = lobbyManager.GetNumLobbies();
 					await StatsTracker.Update(numLobbies, WebSocketManager.GetUserDataCache().Count);
 
-					await LobbyManager.Cleanup();
+					await lobbyManager.Cleanup();
 				}
 				catch (Exception ex)
 				{
@@ -882,7 +1047,8 @@ namespace GenOnlineService
 				{
 					try
 					{
-						await LobbyManager.Tick();
+						var lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
+						await lobbyManager.Tick();
 						await WebSocketManager.Tick();
 					}
 					catch (Exception ex)
@@ -949,7 +1115,12 @@ namespace GenOnlineService
 				{
 					try
 					{
-						await DailyStatsManager.SaveToDB();
+						using (var scope = app.Services.CreateScope())
+						{
+							var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+							await using var db = await factory.CreateDbContextAsync();
+							await DailyStatsManager.SaveToDB(db);
+						}
 					}
 					catch (Exception ex)
 					{
@@ -973,8 +1144,15 @@ namespace GenOnlineService
 			g_tokenGenerator = new JwtTokenGenerator(builder.Configuration);
 
 			// load daily stats
-			await DailyStatsManager.LoadFromDB();
+			using (var scope = app.Services.CreateScope())
+			{
+				var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+				await using var db = await factory.CreateDbContextAsync();
 
+				// do a cleanup on startup
+				await DoCleanup(db, true);
+				await DailyStatsManager.LoadFromDB(db);
+			}
 
 			app.Run();
 
@@ -1064,4 +1242,10 @@ namespace GenOnlineService
 			}
 		}
 	}
+
+	public static class ServiceLocator
+	{
+		public static IServiceProvider Services { get; set; } = default!;
+	}
+
 }

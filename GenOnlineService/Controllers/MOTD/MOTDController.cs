@@ -39,7 +39,7 @@ namespace GenOnlineService.Controllers
 
 
 	[ApiController]
-	[Authorize(Roles = "Player,Monitor")]
+	[Authorize(Roles = "GameClient,ChatClient,GameLauncher,Monitor")]
 	[Route("env/{environment}/contract/{contract_version}/[controller]")]
 	public class MOTDController : ControllerBase
 	{

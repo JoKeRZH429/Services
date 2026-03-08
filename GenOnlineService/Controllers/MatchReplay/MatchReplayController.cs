@@ -31,7 +31,6 @@ using Amazon.S3;
 using Amazon.S3.Model;
 using System.ComponentModel.DataAnnotations;
 using Org.BouncyCastle.Tls;
-using static Database.Functions.Lobby;
 
 namespace GenOnlineService.Controllers
 {
@@ -48,15 +47,17 @@ namespace GenOnlineService.Controllers
 	public class MatchReplayController : ControllerBase
 	{
 		private readonly ILogger<LobbiesController> _logger;
+		private readonly LobbyManager _lobbyManager;
 
-		public MatchReplayController(ILogger<LobbiesController> logger)
+		public MatchReplayController(LobbyManager lobbyManager, ILogger<LobbiesController> logger)
 		{
 			_logger = logger;
+			_lobbyManager = lobbyManager;
 		}
 
 		[HttpPut]
 		[RequestSizeLimit(2097152)] // 2MB
-		[Authorize(Roles = "Player")]
+		[Authorize(Roles = "GameClient")]
 		public async Task<APIResult> Post()
 		{
 			RouteHandler_POST_Lobby_Result result = new RouteHandler_POST_Lobby_Result();
@@ -90,15 +91,16 @@ namespace GenOnlineService.Controllers
 
 			// must be in a lobby
 			Int64 user_id = TokenHelper.GetUserID(this);
-			if (user_id != -1)
+			EUserSessionType sessionType = TokenHelper.GetSessionType(this);
+			if (user_id != -1 && SessionHelpers.SessionTypeHasAccessTo(sessionType, ESessionAccessType.Gameplay)) // technically a duplicate check, since role above should also validate this, but just to be safe and avoid any weird edge cases where somehow we get here without a valid user session, etc
 			{
-				UserSession? sourceData = WebSocketManager.GetDataFromUser(user_id);
+				UserSession? sourceData = WebSocketManager.GetSessionFromUser(user_id, sessionType);
 				if (sourceData != null)
 				{
 					// TODO_QUICKMATCH: We need a way of checking if player is really in a match or not, so they cant just upload all the time, and also dont let them keep uploading replays if they already did, etc
 					
 					// lobby cant have AI and must have at least 2 human players at some point
-					Lobby? lobby = LobbyManager.GetLobby(sourceData.currentLobbyID);
+					Lobby? lobby = _lobbyManager.GetLobby(sourceData.currentLobbyID);
 					if (lobby == null || !lobby.WasPVPAtStart() || lobby.HadAIAtStart())
 					{
 						Response.StatusCode = (int)HttpStatusCode.NotAcceptable;

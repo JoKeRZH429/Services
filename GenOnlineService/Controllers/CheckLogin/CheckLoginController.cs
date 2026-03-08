@@ -18,6 +18,7 @@
 
 using Database;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using MySqlX.XDevAPI.Common;
 using System;
 using System.Net;
@@ -48,9 +49,11 @@ namespace GenOnlineService.Controllers
 	[Route("env/{environment}/contract/{contract_version}/[controller]")]
 	public class CheckLoginController : ControllerBase
 	{
-		public CheckLoginController()
-		{
+		private readonly IDbContextFactory<AppDbContext> _dbFactory;
 
+		public CheckLoginController(IDbContextFactory<AppDbContext> dbFactory)
+		{
+			_dbFactory = dbFactory;
 		}
 
 		[HttpPost]
@@ -102,6 +105,8 @@ namespace GenOnlineService.Controllers
 					{
 						if (data != null && data.ContainsKey("code") && data.ContainsKey("client_id"))
 						{
+							await using var db = await _dbFactory.CreateDbContextAsync();
+
 							//byte[] respNonce = new byte[32];
 							//using (RandomNumberGenerator rng = RandomNumberGenerator.Create()) { rng.GetBytes(respNonce); }
 
@@ -123,12 +128,15 @@ namespace GenOnlineService.Controllers
 								UInt32 highestIDFound = 0;
 								// which account should we use?
 								var sessions = WebSocketManager.GetUserDataCache();
-								foreach (KeyValuePair<Int64, UserSession> sessionData in sessions)
+								foreach (var sessionDataByClient in sessions)
 								{
-									UserSession sessIter = sessionData.Value;
-									if (sessIter.m_UserID > highestIDFound)
+									foreach (var sessionData in sessionDataByClient.Value)
 									{
-										highestIDFound = (UInt32)sessIter.m_UserID;
+										UserSession sessIter = sessionData.Value;
+										if (sessIter.m_UserID > highestIDFound)
+										{
+											highestIDFound = (UInt32)sessIter.m_UserID;
+										}
 									}
 								}
 
@@ -137,26 +145,21 @@ namespace GenOnlineService.Controllers
 
 
 								// make user
-								await Database.Functions.Auth.CreateUserIfNotExists_DevAccount(GlobalDatabaseInstance.g_Database, user_id, result.display_name);
+								await Database.Users.CreateUserIfNotExists_DevAccount(db, user_id, result.display_name);
 							}
 
-							bool bIsAdmin = await Database.Functions.Auth.IsUserAdmin(GlobalDatabaseInstance.g_Database, user_id);
+							bool bIsAdmin = await Database.Users.IsUserAdmin(db, user_id);
 #else
+							EPendingLoginState? loginState = await Database.PendingLogins.GetPendingLoginState(db, gameCode.ToUpper());
 
-							CMySQLResult sqlRes = await GlobalDatabaseInstance.g_Database.Query("SELECT state FROM pending_logins WHERE code=@game_code LIMIT 1;", new()
-								{
-									{ "@game_code", gameCode.ToUpper()}
-								});
-							if (sqlRes.NumRows() > 0)
-								{
-									EPendingLoginState state = (EPendingLoginState)Convert.ToInt32(sqlRes.GetRow(0)["state"]);
+							if (loginState != null)
+							{
+									EPendingLoginState state = loginState.Value;
 
-									Int64 user_id = await Database.Functions.Auth.GetUserIDFromPendingLogin(GlobalDatabaseInstance.g_Database, gameCode);
-										//string sess_id = await Database.Functions.Auth.StartSession(GlobalDatabaseInstance.g_Database, user_id, clientID);
-										//string autologin_token = await Database.Functions.Auth.CreateAutoLogin(GlobalDatabaseInstance.g_Database, user_id);
-										string strDisplayName = await Database.Functions.Auth.GetDisplayName(GlobalDatabaseInstance.g_Database, user_id);
+									Int64 user_id = await Database.PendingLogins.GetUserIDFromPendingLogin(db, gameCode);
+									string strDisplayName = await Database.Users.GetDisplayName(db, user_id);
 
-								bool bIsAdmin = await Database.Functions.Auth.IsUserAdmin(GlobalDatabaseInstance.g_Database, user_id);
+								bool bIsAdmin = await Database.Users.IsUserAdmin(db, user_id);
 #endif
 
 							if (state == EPendingLoginState.Waiting)
@@ -171,7 +174,7 @@ namespace GenOnlineService.Controllers
 								if (clientID != null && Program.g_tokenGenerator != null)
 								{
 									// ban check
-									bool bIsBanned = await Database.Functions.Auth.IsUserBanned(GlobalDatabaseInstance.g_Database, user_id);
+									bool bIsBanned = await Database.Users.IsUserBanned(db, user_id);
 									if (bIsBanned)
 									{
 										result.result = EPendingLoginState.LoginFailed;
@@ -179,22 +182,26 @@ namespace GenOnlineService.Controllers
 										return result;
 									}
 
-									// full login
-									if (clientID == "gen_online_60hz" || clientID == "gen_online_30hz" || clientID == "genhub")
+									// full login (known clients)
+									if (Enum.TryParse(typeof(KnownClients.EKnownClients), clientID, ignoreCase: true, out object knownClientIDObj))
 									{
-										if (clientID == "gen_online_60hz" || clientID == "gen_online_30hz")
+										KnownClients.EKnownClients knownClientID = (KnownClients.EKnownClients)knownClientIDObj;
+										EUserSessionType sessionType = KnownClients.KnownClientSessionTypes[knownClientID];
+
+										// Game clients should register the user device
+										if (sessionType == EUserSessionType.GameClient)
 										{
 											string hwid_0 = data.ContainsKey("reserved_0") ? data["reserved_0"].ToString() : "NONE";
 											string hwid_1 = data.ContainsKey("reserved_1") ? data["reserved_1"].ToString() : "NONE";
 											string hwid_2 = data.ContainsKey("reserved_2") ? data["reserved_2"].ToString() : "NONE";
-											await Database.Functions.Auth.RegisterUserDevice(GlobalDatabaseInstance.g_Database, user_id, hwid_0, hwid_1, hwid_2, ipAddr);
+											await Database.UserDevices.RegisterUserDevice(db, user_id, hwid_0, hwid_1, hwid_2, ipAddr);
 										}
 
 										string exe_crc = data.ContainsKey("exe_crc") ? data["exe_crc"].ToString() : "NONE";
 										Helpers.RegisterInitialPlayerExeCRC(user_id, exe_crc);
 
-										var sessiontoken = Program.g_tokenGenerator.GenerateToken(strDisplayName, user_id, ipAddr, Program.JwtTokenGenerator.ETokenType.Session, clientID, bIsAdmin);
-										var refreshtoken = Program.g_tokenGenerator.GenerateToken(strDisplayName, user_id, ipAddr, Program.JwtTokenGenerator.ETokenType.Refresh, clientID, false);
+										var sessiontoken = Program.g_tokenGenerator.GenerateToken(strDisplayName, user_id, ipAddr, Program.JwtTokenGenerator.ETokenType.Session, knownClientID, sessionType, bIsAdmin);
+										var refreshtoken = Program.g_tokenGenerator.GenerateToken(strDisplayName, user_id, ipAddr, Program.JwtTokenGenerator.ETokenType.Refresh, knownClientID, sessionType, false);
 
 										result.result = EPendingLoginState.LoginSuccess;
 										result.session_token = sessiontoken;
@@ -204,7 +211,7 @@ namespace GenOnlineService.Controllers
 										result.ws_uri = Program.GetWebSocketAddress(bSecureWS);
 
 										// clear cached data, its a refresh websocket connection
-										WebSocketManager.ClearDataFromUser(user_id);
+										WebSocketManager.ClearDataFromUser(user_id, sessionType);
 									}
 									else // limited login (auth partners)
 									{
@@ -216,7 +223,7 @@ namespace GenOnlineService.Controllers
 										result.ws_uri = null;
 									}
 
-									await Database.Functions.Auth.CleanupPendingLogin(GlobalDatabaseInstance.g_Database, gameCode);
+									await Database.PendingLogins.CleanupPendingLogin(db, gameCode);
 
 									return result;
 								}
@@ -231,10 +238,10 @@ namespace GenOnlineService.Controllers
 							{
 								result.result = EPendingLoginState.LoginFailed;
 								Response.StatusCode = (int)HttpStatusCode.Forbidden;
-								await Database.Functions.Auth.CleanupPendingLogin(GlobalDatabaseInstance.g_Database, gameCode);
+								await Database.PendingLogins.CleanupPendingLogin(db, gameCode);
 							}
 #if !DEBUG
-								}
+							}
 #endif
 						}
 						else

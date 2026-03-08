@@ -20,6 +20,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Concurrent;
@@ -28,7 +29,6 @@ using System.Net.WebSockets;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
-using static Database.Functions;
 public class LatencyEntry
 {
 	public Int64 user_id { get; set; }
@@ -142,14 +142,18 @@ namespace GenOnlineService.Controllers
 	public class LobbyController : ControllerBase
 	{
 		private readonly ILogger<LobbiesController> _logger;
+		private readonly LobbyManager _lobbyManager;
+		private readonly IDbContextFactory<AppDbContext> _dbFactory;
 
-		public LobbyController(ILogger<LobbiesController> logger)
+		public LobbyController(LobbyManager lobbyManager, IDbContextFactory<AppDbContext> dbFactory, ILogger<LobbiesController> logger)
 		{
 			_logger = logger;
+			_lobbyManager = lobbyManager;
+			_dbFactory = dbFactory;
 		}
 
 		[HttpGet("{lobby_id}")]
-		[Authorize(Roles = "Player,Monitor")]
+		[Authorize(Roles = "GameClient,ChatClient,GameLauncher,Monitor")]
 		public async Task<APIResult> Get(string lobby_id)
 		{
 			RouteHandler_GET_Lobby_Result result = new RouteHandler_GET_Lobby_Result();
@@ -167,7 +171,7 @@ namespace GenOnlineService.Controllers
 					// need a lobby ID
 					if (Int64.TryParse(lobby_id, out Int64 lobbyID))
 					{
-						Lobby? lobby = LobbyManager.GetLobby(lobbyID);
+						Lobby? lobby = _lobbyManager.GetLobby(lobbyID);
 						result.lobby = lobby;
 					}
 
@@ -191,7 +195,7 @@ namespace GenOnlineService.Controllers
 		}
 
 		[HttpDelete("{lobbyID}")]
-		[Authorize(Roles = "Player")]
+		[Authorize(Roles = "GameClient")]
 		public async Task<APIResult> Delete(Int64 lobbyID)
 		{
 			RouteHandler_DELETE_Lobby_Result result = new RouteHandler_DELETE_Lobby_Result();
@@ -210,9 +214,10 @@ namespace GenOnlineService.Controllers
 					// need a lobby ID
 					int leavingPersonSlot = -1;
 					Int64 user_id = TokenHelper.GetUserID(this);
-					if (user_id != -1)
+					EUserSessionType sessionType = TokenHelper.GetSessionType(this);
+					if (user_id != -1 && SessionHelpers.SessionTypeHasAccessTo(sessionType, ESessionAccessType.Gameplay))
 					{
-						Lobby? lobby = LobbyManager.GetLobby(lobbyID);
+						Lobby? lobby = _lobbyManager.GetLobby(lobbyID);
 						if (lobby != null)
 						{
 							foreach (var member in lobby.Members)
@@ -228,13 +233,13 @@ namespace GenOnlineService.Controllers
 						}
 
 						Console.WriteLine("[Source 1] User {0} Leave Any Lobby", user_id);
-						LobbyManager.LeaveAnyLobby(user_id);
+						_lobbyManager.LeaveAnyLobby(user_id);
 
 						// cleanup TURN credentials
 						TURNCredentialManager.DeleteCredentialsForUser(user_id);
 
 						// clear our lobby ID
-						UserSession? sourceData = WebSocketManager.GetDataFromUser(user_id);
+						UserSession? sourceData = WebSocketManager.GetSessionFromUser(user_id, sessionType);
 
 						if (sourceData != null)
 						{
@@ -256,7 +261,7 @@ namespace GenOnlineService.Controllers
 		}
 
 		[HttpPost("Outcome")]
-		[Authorize(Roles = "Player")]
+		[Authorize(Roles = "GameClient")]
 		public async Task<APIResult?> PostOutcome()
 		{
 			using (var reader = new StreamReader(HttpContext.Request.Body))
@@ -285,32 +290,37 @@ namespace GenOnlineService.Controllers
 						)
 					{
 						Int64 user_id = TokenHelper.GetUserID(this);
-						UserSession? sourceData = WebSocketManager.GetDataFromUser(user_id);
-						if (sourceData != null)
+						EUserSessionType sessionType = TokenHelper.GetSessionType(this);
+						if (user_id != -1 && SessionHelpers.SessionTypeHasAccessTo(sessionType, ESessionAccessType.Gameplay))
 						{
-							int buildings_built = data["buildings_built"].GetInt32();
-							int buildings_killed = data["buildings_killed"].GetInt32();
-							int buildings_lost = data["buildings_lost"].GetInt32();
-							int units_built = data["units_built"].GetInt32();
-							int units_killed = data["units_killed"].GetInt32();
-							int units_lost = data["units_lost"].GetInt32();
-							int total_money = data["total_money"].GetInt32();
-							bool won = data["won"].GetBoolean();
-							UInt64 match_id = data["match_id"].GetUInt64();
-
-							// were they really in the match they claim to be in?
-							if (!sourceData.WasPlayerInMatch(match_id, out int slotIndexInLobby, out int army))
+							UserSession? sourceData = WebSocketManager.GetSessionFromUser(user_id, sessionType);
+							if (sourceData != null)
 							{
-								Response.StatusCode = (int)HttpStatusCode.Unauthorized;
-								return null;
+								int buildings_built = data["buildings_built"].GetInt32();
+								int buildings_killed = data["buildings_killed"].GetInt32();
+								int buildings_lost = data["buildings_lost"].GetInt32();
+								int units_built = data["units_built"].GetInt32();
+								int units_killed = data["units_killed"].GetInt32();
+								int units_lost = data["units_lost"].GetInt32();
+								int total_money = data["total_money"].GetInt32();
+								bool won = data["won"].GetBoolean();
+								UInt64 match_id = data["match_id"].GetUInt64();
+
+								// were they really in the match they claim to be in?
+								if (!sourceData.WasPlayerInMatch(match_id, out int slotIndexInLobby, out int army))
+								{
+									Response.StatusCode = (int)HttpStatusCode.Unauthorized;
+									return null;
+								}
+
+								// register with daily stats
+								DailyStatsManager.RegisterOutcome(army, won);
+
+								// store in DB
+								await using var db = await _dbFactory.CreateDbContextAsync();
+								await Database.MatchHistory.CommitPlayerOutcome(db, slotIndexInLobby, match_id,
+										buildings_built, buildings_killed, buildings_lost, units_built, units_killed, units_lost, total_money, won);
 							}
-
-							// register with daily stats
-							DailyStatsManager.RegisterOutcome(army, won);
-
-                            // store in DB
-                            await Database.Functions.Lobby.CommitPlayerOutcome(GlobalDatabaseInstance.g_Database, slotIndexInLobby, match_id,
-									buildings_built, buildings_killed, buildings_lost, units_built, units_killed, units_lost, total_money, won);
 						}
 					}
 				}
@@ -354,7 +364,7 @@ namespace GenOnlineService.Controllers
 
 
 		[HttpPost("{lobbyID}")]
-		[Authorize(Roles = "Player")]
+		[Authorize(Roles = "GameClient")]
 		public async Task<APIResult> Post(Int64 lobbyID)
 		{
 			RouteHandler_POST_Lobby_Result result = new RouteHandler_POST_Lobby_Result();
@@ -382,7 +392,7 @@ namespace GenOnlineService.Controllers
 						Int64 user_id = TokenHelper.GetUserID(this);
 						if (user_id != -1)
 						{
-							Lobby? lobby = LobbyManager.GetLobby(lobbyID);
+							Lobby? lobby = _lobbyManager.GetLobby(lobbyID);
 
 							if (lobby != null)
 							{
@@ -419,7 +429,7 @@ namespace GenOnlineService.Controllers
 									lobby.ResetReadyStates();
 								}
 
-								if (field == ELobbyUpdateField.LOBBY_MAP) // TODO_NGMP: We should enforce hos for some of these updates
+								if (field == ELobbyUpdateField.LOBBY_MAP)
 								{
 									if (data.ContainsKey("map")
 										&& data.ContainsKey("map_path")
@@ -433,7 +443,8 @@ namespace GenOnlineService.Controllers
 
 										if (strMap != null && strMapPath != null)
 										{
-											await lobby.UpdateMap(strMap, strMapPath, bOfficialMap, maxPlayers);
+											await using var db = await _dbFactory.CreateDbContextAsync();
+											await lobby.UpdateMap(db, strMap, strMapPath, bOfficialMap, maxPlayers);
 										}
 									}
 								}
@@ -445,7 +456,9 @@ namespace GenOnlineService.Controllers
 									{
 										int side = data["side"].GetInt32();
 										int start_pos = data["start_pos"].GetInt32();
-										await SourceMember.UpdateSide(side, start_pos);
+
+										await using var db = await _dbFactory.CreateDbContextAsync();
+										await SourceMember.UpdateSide(db, side, start_pos);
 									}
 								}
 								else if (field == ELobbyUpdateField.MY_COLOR)
@@ -453,7 +466,9 @@ namespace GenOnlineService.Controllers
 									if (data.ContainsKey("color"))
 									{
 										int color = data["color"].GetInt32();
-										await SourceMember.UpdateColor(color);
+
+										await using var db = await _dbFactory.CreateDbContextAsync();
+										await SourceMember.UpdateColor(db, color);
 									}
 								}
 								else if (field == ELobbyUpdateField.MY_START_POS)
@@ -477,7 +492,9 @@ namespace GenOnlineService.Controllers
 									if (data.ContainsKey("startingcash"))
 									{
 										UInt32 startingCash = data["startingcash"].GetUInt32();
-										await lobby.UpdateStartingCash(startingCash);
+
+										await using var db = await _dbFactory.CreateDbContextAsync();
+										await lobby.UpdateStartingCash(db, startingCash);
 									}
 								}
 								else if (field == ELobbyUpdateField.LOBBY_LIMIT_SUPERWEAPONS)
@@ -485,7 +502,9 @@ namespace GenOnlineService.Controllers
 									if (data.ContainsKey("limit_superweapons"))
 									{
 										bool bLimitSuperweapons = data["limit_superweapons"].GetBoolean();
-										await lobby.UpdateLimitSuperweapons(bLimitSuperweapons);
+
+										await using var db = await _dbFactory.CreateDbContextAsync();
+										await lobby.UpdateLimitSuperweapons(db, bLimitSuperweapons);
 									}
 								}
 								else if (field == ELobbyUpdateField.HOST_ACTION_FORCE_START)
@@ -509,13 +528,13 @@ namespace GenOnlineService.Controllers
 										// TODO: we should communicate the kick to the user...
 										Int64 KickedUserID = data["userid"].GetInt64();
 
-										LobbyManager.LeaveSpecificLobby(KickedUserID, lobbyID);
+										_lobbyManager.LeaveSpecificLobby(KickedUserID, lobbyID);
 
 										// cleanup TURN credentials
 										TURNCredentialManager.DeleteCredentialsForUser(KickedUserID);
 
 										// clear our lobby ID
-										UserSession? sourceData = WebSocketManager.GetDataFromUser(KickedUserID);
+										UserSession? sourceData = WebSocketManager.GetSessionFromUser(KickedUserID, EUserSessionType.GameClient); // user being kicked must be a game client
 
 										if (sourceData != null)
 										{
@@ -554,7 +573,8 @@ namespace GenOnlineService.Controllers
 										{
 											if (TargetMember.IsAI())
 											{
-												await TargetMember.UpdateSide(side, start_pos);
+												await using var db = await _dbFactory.CreateDbContextAsync();
+												await TargetMember.UpdateSide(db, side, start_pos);
 											}
 										}
 									}
@@ -572,12 +592,13 @@ namespace GenOnlineService.Controllers
 										{
 											if (TargetMember.IsAI())
 											{
-												await TargetMember.UpdateColor(color);
+												await using var db = await _dbFactory.CreateDbContextAsync();
+												await TargetMember.UpdateColor(db, color);
 											}
 										}
 									}
 								}
-								else if (field == ELobbyUpdateField.AI_TEAM) // TODO: these funcs should check the slot is ACTUALLY AI, host could abuse it to change others teams etc...
+								else if (field == ELobbyUpdateField.AI_TEAM)
 								{
 									if (data.ContainsKey("slot")
 										&& data.ContainsKey("team"))
@@ -595,12 +616,12 @@ namespace GenOnlineService.Controllers
 										}
 									}
 								}
-								else if (field == ELobbyUpdateField.AI_START_POS) // TODO: these funcs should check the slot is ACTUALLY AI, host could abuse it to change others teams etc...
+								else if (field == ELobbyUpdateField.AI_START_POS)
 								{
 									if (data.ContainsKey("slot")
 										&& data.ContainsKey("start_pos"))
 									{
-										// TODO: All these AI funcs should check the player being operated upon is AI, otherwise host could use fiddler to alter other users
+
 										int slot = data["slot"].GetInt32();
 										int start_pos = data["start_pos"].GetInt32();
 
@@ -643,7 +664,7 @@ namespace GenOnlineService.Controllers
 		}
 
 		[HttpPut("{lobbyID}")]
-		[Authorize(Roles = "Player")]
+		[Authorize(Roles = "GameClient")]
 		public async Task<APIResult> Put(Int64 lobbyID)
 		{
 			RouteHandler_PUT_Lobby_Result result = new RouteHandler_PUT_Lobby_Result();
@@ -668,12 +689,13 @@ namespace GenOnlineService.Controllers
 						)
 					{
 
-						Lobby? lobby = LobbyManager.GetLobby(lobbyID);
+						Lobby? lobby = _lobbyManager.GetLobby(lobbyID);
 
 						if (lobby != null)
 						{
 							Int64 user_id = TokenHelper.GetUserID(this);
-							if (user_id != -1)
+							EUserSessionType sessionType = TokenHelper.GetSessionType(this);
+							if (user_id != -1 && SessionHelpers.SessionTypeHasAccessTo(sessionType, ESessionAccessType.Gameplay))
 							{
 								UInt16 userPreferredPort = data["preferred_port"].GetUInt16();
 								bool bHasMap = data["has_map"].GetBoolean();
@@ -707,15 +729,16 @@ namespace GenOnlineService.Controllers
 									}
 								}
 
-								UserSession? playerSession = WebSocketManager.GetDataFromUser(user_id);
+								UserSession? playerSession = WebSocketManager.GetSessionFromUser(user_id, sessionType);
 
 								if (playerSession != null)
 								{
 									// leave any lobby
-									LobbyManager.LeaveAnyLobby(user_id);
+									_lobbyManager.LeaveAnyLobby(user_id);
 
-									string strDisplayName = await Database.Functions.Auth.GetDisplayName(GlobalDatabaseInstance.g_Database, user_id);
-									bool bJoinedSuccessfully = await LobbyManager.JoinLobby(lobby, playerSession, strDisplayName, userPreferredPort, bHasMap);
+									await using var db = await _dbFactory.CreateDbContextAsync();
+									string strDisplayName = await Database.Users.GetDisplayName(db, user_id);
+									bool bJoinedSuccessfully = await _lobbyManager.JoinLobby(db, lobby, playerSession, strDisplayName, userPreferredPort, bHasMap);
 
 									result.success = bJoinedSuccessfully;
 

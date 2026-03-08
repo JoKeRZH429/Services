@@ -12,7 +12,12 @@
     <TreatWarningsAsErrors>False</TreatWarningsAsErrors>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
+	<ItemGroup>
+		<PackageReference Update="System.Linq.AsyncEnumerable" ExcludeAssets="all" />
+	</ItemGroup>
+
+
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
     <WarningLevel>0</WarningLevel>
     <TreatWarningsAsErrors>False</TreatWarningsAsErrors>
   </PropertyGroup>
@@ -45,6 +50,7 @@
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.1" />
     <PackageReference Include="MySql.Data" Version="9.5.0" />
     <PackageReference Include="NSec.Cryptography" Version="25.4.0" />
+    <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="9.0.0" />
     <PackageReference Include="Sentry" Version="6.0.0" />
   </ItemGroup>
 

@@ -19,6 +19,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using System;
 using System.Net;
@@ -63,9 +64,15 @@ namespace GenOnlineService.Controllers
 		private static List<RoomData>? s_cachedRooms = null;
 		private static readonly object s_roomsLock = new object();
 
-		public LobbiesController(ILogger<LobbiesController> logger)
+		private readonly LobbyManager _lobbyManager;
+		private readonly IDbContextFactory<AppDbContext> _dbFactory;
+
+
+		public LobbiesController(LobbyManager lobbyManager, IDbContextFactory<AppDbContext> dbFactory, ILogger<LobbiesController> logger)
 		{
 			_logger = logger;
+			_lobbyManager = lobbyManager;
+			_dbFactory = dbFactory;
 		}
 
 		// Cache rooms.json data to avoid disk I/O on every request
@@ -124,7 +131,7 @@ namespace GenOnlineService.Controllers
 		// END LATENCY ESTIMATIONS
 
 		[HttpGet(Name = "GetLobbies")]
-		[Authorize(Policy = "PlayerOrMonitorOrApiKey")]
+		[Authorize(Policy = "AnyClientOrMonitorOrApiKey")]
 		public async Task<APIResult> Get()
 		{
 			RouteHandler_GET_Lobbies_Result result = new RouteHandler_GET_Lobbies_Result();
@@ -149,9 +156,10 @@ namespace GenOnlineService.Controllers
 					
 					
 					Int64 user_id = TokenHelper.GetUserID(this);
-					if (user_id != -1)
+					EUserSessionType sessionType = TokenHelper.GetSessionType(this);
+					if (user_id != -1 && SessionHelpers.SessionTypeHasAccessTo(sessionType, ESessionAccessType.ServerListReadOnly))
 					{
-						UserSession? sourceData = WebSocketManager.GetDataFromUser(user_id);
+						UserSession? sourceData = WebSocketManager.GetSessionFromUser(user_id, sessionType);
 
 						if (sourceData != null)
 						{
@@ -182,7 +190,7 @@ namespace GenOnlineService.Controllers
 							bIncludeAllNetworkRooms = true;
 						}
 
-							lstLobbies = LobbyManager.GetAllLobbies(networkRoomID, true, true, false, false, bIncludeAllNetworkRooms);
+							lstLobbies = _lobbyManager.GetAllLobbies(networkRoomID, true, true, false, false, bIncludeAllNetworkRooms);
 
 						List<Lobby> lstLobbiesToRemove = new();
 
@@ -191,7 +199,7 @@ namespace GenOnlineService.Controllers
 						foreach (Lobby lobby in lstLobbies)
 						{
 							// SOCIAL: If the lobby owner has source user blocked, remove the lobby
-							UserSession? lobbyOwner = WebSocketManager.GetDataFromUser(lobby.Owner);
+							SharedUserData? lobbyOwner = WebSocketManager.GetSharedDataForUser(lobby.Owner);
 
 							if (lobbyOwner != null)
 							{
@@ -252,7 +260,7 @@ namespace GenOnlineService.Controllers
 						networkRoomID = 0;
 						bIncludeAllNetworkRooms = true;
 
-						lstLobbies = LobbyManager.GetAllLobbies(networkRoomID, true, true, true, true, bIncludeAllNetworkRooms);
+						lstLobbies = _lobbyManager.GetAllLobbies(networkRoomID, true, true, true, true, bIncludeAllNetworkRooms);
 					}
 					else
 					{
@@ -275,7 +283,7 @@ namespace GenOnlineService.Controllers
 		}
 
 		[HttpPut(Name = "PutLobbies")]
-		[Authorize(Roles = "Player")]
+		[Authorize(Roles = "GameClient")]
 		public async Task<APIResult> Put()
 		{
 			RouteHandler_PUT_Lobbies_Result result = new RouteHandler_PUT_Lobbies_Result();
@@ -351,23 +359,26 @@ namespace GenOnlineService.Controllers
 
 						// get requesting user data from session token
 						Int64 user_id = TokenHelper.GetUserID(this);
+						EUserSessionType sessionType = TokenHelper.GetSessionType(this);
 
 						// check nullables also
-						if (user_id != -1 && strName != null && strMapName != null && strMapPath != null && strPassword != null)
+						if (user_id != -1 && strName != null && strMapName != null && strMapPath != null && strPassword != null && SessionHelpers.SessionTypeHasAccessTo(sessionType, ESessionAccessType.Gameplay))
 						{
 							// TODO: Handle failure here
 							// TODO_ASP: Remove ip address from db, not needed
 							string strIPAddr = "";
 
-							UserSession playerSession = WebSocketManager.GetDataFromUser(user_id);
+							UserSession playerSession = WebSocketManager.GetSessionFromUser(user_id, sessionType);
 
 							if (playerSession != null)
 							{
 								// cleanup any zombie lobbies
-								await LobbyManager.CleanupUserLobbiesNotStarted(user_id);
+								await _lobbyManager.CleanupUserLobbiesNotStarted(user_id);
 
-								string strDisplayName = await Database.Functions.Auth.GetDisplayName(GlobalDatabaseInstance.g_Database, user_id);
-								Int64 newLobbyID = await LobbyManager.CreateLobby(playerSession, strDisplayName, strName, strMapName, strMapPath, bMapOfficial, maxPlayers, strIPAddr,
+								await using var db = await _dbFactory.CreateDbContextAsync();
+								string strDisplayName = await Database.Users.GetDisplayName(db, user_id);
+
+								Int64 newLobbyID = await _lobbyManager.CreateLobby(db, playerSession, strDisplayName, strName, strMapName, strMapPath, bMapOfficial, maxPlayers, strIPAddr,
 									hostPreferredPort, bVanillaTeamsOnly, bTrackStats, starting_cash, bPassworded, strPassword, playerSession.networkRoomID, bAllowObservers, maxCamHeight, exe_crc, ini_crc, ELobbyType.CustomGame);
 
 								if (newLobbyID >= 0)

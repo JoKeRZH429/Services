@@ -17,12 +17,15 @@
 */
 
 using Amazon.S3.Model;
+using Discord.Commands;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using System;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.WebSockets;
 using System.Security.Claims;
 using System.Text;
@@ -64,11 +67,13 @@ namespace GenOnlineService.Controllers
 	[Route("env/{environment}/contract/{contract_version}/[controller]")]
 	public class SocialController : ControllerBase
 	{
+		private readonly IDbContextFactory<AppDbContext> _dbFactory;
 		private readonly ILogger<SocialController> _logger;
 
-		public SocialController(ILogger<SocialController> logger)
+		public SocialController(IDbContextFactory<AppDbContext> dbFactory, ILogger<SocialController> logger)
 		{
 			_logger = logger;
+			_dbFactory = dbFactory;
 		}
 
 		// Friends/Requests/<id>
@@ -78,70 +83,74 @@ namespace GenOnlineService.Controllers
 
 		private async Task HelperFunction_AcceptFriendRequest(Int64 source_user_id, Int64 target_user_id)
 		{
-            // target user does NOT need to be signed in
-            UserSession? sourceData = WebSocketManager.GetDataFromUser(source_user_id);
-			UserSession? targetData = WebSocketManager.GetDataFromUser(target_user_id);
+			SharedUserData? sharedUserDataSource = GenOnlineService.WebSocketManager.GetSharedDataForUser(source_user_id);
+			SharedUserData? sharedUserDataTarget = GenOnlineService.WebSocketManager.GetSharedDataForUser(target_user_id);
+
+			await using var db = await _dbFactory.CreateDbContextAsync();
+			// NOTE: target user does NOT need to be signed in
 
 			// remove the request from requestor (online version)
 #pragma warning disable CS8602 // Dereference of a possibly null reference.
-			sourceData.GetSocialContainer().PendingRequests.Remove(target_user_id);
+			sharedUserDataSource.GetSocialContainer().PendingRequests.Remove(target_user_id);
 #pragma warning restore CS8602 // Dereference of a possibly null reference.
 
             // remove the request from requestor (db)
-            await Database.Functions.Auth.RemovePendingFriendRequest(GlobalDatabaseInstance.g_Database, source_user_id, target_user_id);
+            await Database.Social.RemovePendingFriendRequest(db, source_user_id, target_user_id);
 
             // Add to both players friends list (online version and db)
 
             // SHARED db (we only have to add this once and it covers both players)
-            await Database.Functions.Auth.CreateFriendship(GlobalDatabaseInstance.g_Database, source_user_id, target_user_id);
+            await Database.Social.CreateFriendship(db, source_user_id, target_user_id);
 
             // source player
             {
 				// sess
-				sourceData.GetSocialContainer().Friends.Add(target_user_id);
+				sharedUserDataSource.GetSocialContainer().Friends.Add(target_user_id);
             }
 
             // target player
             {
                 // sess
-                if (targetData != null)
+                if (sharedUserDataTarget != null)
                 {
-					targetData.GetSocialContainer().Friends.Add(source_user_id);
+					sharedUserDataTarget.GetSocialContainer().Friends.Add(source_user_id);
                 }
             }
 
 			// notify the source player that the target player is online, if they are
-			if (sourceData != null)
+			if (sharedUserDataTarget != null)
             {
                 WebSocketMessage_Social_FriendStatusChanged friendStatusChangedEvent = new();
                 friendStatusChangedEvent.msg_id = (int)EWebSocketMessageID.SOCIAL_FRIEND_ONLINE_STATUS_CHANGED;
-                friendStatusChangedEvent.display_name = targetData.m_strDisplayName;
+                friendStatusChangedEvent.display_name = sharedUserDataTarget.m_strDisplayName;
                 friendStatusChangedEvent.online = true;
                 byte[] bytesJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(friendStatusChangedEvent));
 
-                sourceData.QueueWebsocketSend(bytesJSON);
+				// send to all sessions
+				WebsocketHelper.SendToAllSessionsOfUser(source_user_id, bytesJSON);
             }
 
             // notify the target player that the source player accepted their request
-            if (targetData != null)
+            if (sharedUserDataTarget != null)
             {
                 WebSocketMessage_Social_FriendRequestAccepted friendRequestAcceptedEvent = new();
                 friendRequestAcceptedEvent.msg_id = (int)EWebSocketMessageID.SOCIAL_FRIEND_FRIEND_REQUEST_ACCEPTED_BY_TARGET;
-                friendRequestAcceptedEvent.display_name = sourceData.m_strDisplayName;
+                friendRequestAcceptedEvent.display_name = sharedUserDataSource.m_strDisplayName;
                 byte[] bytesJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(friendRequestAcceptedEvent));
 
-                targetData.QueueWebsocketSend(bytesJSON);
-            }
+				// send to all sessions
+				WebsocketHelper.SendToAllSessionsOfUser(target_user_id, bytesJSON);
+			}
         }
 
 		// Accept a request
 		[HttpPost("Friends/Requests/{target_user_id}")]
-		[Authorize(Roles = "Player")]
+		[Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
 		public async Task AcceptPendingRequest(Int64 target_user_id)
 		{
-			// source user must be signed in
+			// source user must be signed in (anywhere)
 			Int64 source_user_id = TokenHelper.GetUserID(this);
-			if (source_user_id == -1 || WebSocketManager.GetDataFromUser(source_user_id) == null)
+			if (source_user_id == -1 || WebSocketManager.GetSharedDataForUser(source_user_id) == null)
 			{
 				Response.StatusCode = (int)HttpStatusCode.Forbidden;
 				return;
@@ -149,27 +158,18 @@ namespace GenOnlineService.Controllers
 
 			HelperFunction_AcceptFriendRequest(source_user_id, target_user_id);
 
-			UserSession? sourceSession = WebSocketManager.GetDataFromUser(source_user_id);
-			if (sourceSession != null)
-            {
-				sourceSession.NotifyFriendslistDirty();
-            }
-
-			UserSession? targetSession = WebSocketManager.GetDataFromUser(target_user_id);
-            if (targetSession != null)
-            {
-				targetSession.NotifyFriendslistDirty();
-            }
-        }
+			SocialHelper.NotifyFriendslistDirty(source_user_id);
+			SocialHelper.NotifyFriendslistDirty(target_user_id);
+		}
 
 		// Reject a request
 		[HttpDelete("Friends/Requests/{target_user_id}")]
-		[Authorize(Roles = "Player")]
+		[Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
 		public async Task RejectPendingRequest(Int64 target_user_id)
 		{
 			// source user must be signed in
 			Int64 source_user_id = TokenHelper.GetUserID(this);
-			if (source_user_id == -1 || WebSocketManager.GetDataFromUser(source_user_id) == null)
+			if (source_user_id == -1 || WebSocketManager.GetSharedDataForUser(source_user_id) == null)
 			{
 				Response.StatusCode = (int)HttpStatusCode.Forbidden;
 				return;
@@ -177,35 +177,27 @@ namespace GenOnlineService.Controllers
 
 			// remove the request from requestor (online version)
 #pragma warning disable CS8602 // Dereference of a possibly null reference.
-			UserSession? userData = WebSocketManager.GetDataFromUser(source_user_id);
+			SharedUserData? userData = WebSocketManager.GetSharedDataForUser(source_user_id);
 			userData.GetSocialContainer().PendingRequests.Remove(target_user_id);
 #pragma warning restore CS8602 // Dereference of a possibly null reference.
 
 			// remove the request from requestor (db)
 			// NOTE: Target and source are inverted here because the target is actually the person who sent the request, source is the person taking action on the friend request
-			await Database.Functions.Auth.RemovePendingFriendRequest(GlobalDatabaseInstance.g_Database, target_user_id, source_user_id);
+			await using var db = await _dbFactory.CreateDbContextAsync();
+			await Database.Social.RemovePendingFriendRequest(db, target_user_id, source_user_id);
 
-
-			if (userData != null)
-            {
-				userData.NotifyFriendslistDirty();
-            }
-
-			UserSession? targetSession = WebSocketManager.GetDataFromUser(target_user_id);
-            if (targetSession != null)
-            {
-				targetSession.NotifyFriendslistDirty();
-            }
+			SocialHelper.NotifyFriendslistDirty(source_user_id);
+			SocialHelper.NotifyFriendslistDirty(target_user_id);
         }
 
 		// Remove a friend
 		[HttpDelete("Friends/{target_user_id}")]
-		[Authorize(Roles = "Player")]
+		[Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
 		public async Task RemoveFriend(Int64 target_user_id)
 		{
 			// source user must be signed in
 			Int64 source_user_id = TokenHelper.GetUserID(this);
-			if (source_user_id == -1 || WebSocketManager.GetDataFromUser(source_user_id) == null)
+			if (source_user_id == -1 || WebSocketManager.GetSharedDataForUser(source_user_id) == null)
 			{
 				Response.StatusCode = (int)HttpStatusCode.Forbidden;
 				return;
@@ -213,7 +205,7 @@ namespace GenOnlineService.Controllers
 
 			// must be friends
 #pragma warning disable CS8602 // Dereference of a possibly null reference.
-			UserSession? userData = WebSocketManager.GetDataFromUser(source_user_id);
+			SharedUserData? userData = WebSocketManager.GetSharedDataForUser(source_user_id);
 			if (!userData.GetSocialContainer().Friends.Contains(target_user_id))
 			{
 				Response.StatusCode = (int)HttpStatusCode.NotFound;
@@ -225,35 +217,29 @@ namespace GenOnlineService.Controllers
 			userData.GetSocialContainer().Friends.Remove(target_user_id);
 
 			// if the other player is online, remove from them too
-			UserSession? TargetUserData = WebSocketManager.GetDataFromUser(target_user_id);
+			SharedUserData? TargetUserData = WebSocketManager.GetSharedDataForUser(target_user_id);
 			if (TargetUserData != null)
 			{
 				TargetUserData.GetSocialContainer().Friends.Remove(source_user_id);
 			}
 
 			// remove the request from requestor (db)
-			await Database.Functions.Auth.RemoveFriendship(GlobalDatabaseInstance.g_Database, source_user_id, target_user_id);
+			await using var db = await _dbFactory.CreateDbContextAsync();
+			await Database.Social.RemoveFriendship(db, source_user_id, target_user_id);
 
 			// TODO_SOCIAL: This tells the client to do a GET, we could just send them their friends list directly to reduce latency + calls to service
-			if (userData != null)
-            {
-				userData.NotifyFriendslistDirty();
-            }
-
-			if (TargetUserData != null)
-			{
-				TargetUserData.NotifyFriendslistDirty();
-            }
-        }
+			SocialHelper.NotifyFriendslistDirty(source_user_id);
+			SocialHelper.NotifyFriendslistDirty(target_user_id);
+		}
 
         // Send a request
         [HttpPut("Friends/Requests/{target_user_id}")]
-		[Authorize(Roles = "Player")]
+		[Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
 		public async Task AddFriend(Int64 target_user_id)
 		{
 			// source user must be signed in
 			Int64 requester_user_id = TokenHelper.GetUserID(this);
-			if (requester_user_id == -1 || WebSocketManager.GetDataFromUser(requester_user_id) == null)
+			if (requester_user_id == -1 || WebSocketManager.GetSharedDataForUser(requester_user_id) == null)
 			{
 				Response.StatusCode = (int)HttpStatusCode.Forbidden;
 				return;
@@ -261,7 +247,7 @@ namespace GenOnlineService.Controllers
 
 			// too many friends?
 			const int friendsLimit = 200;
-			UserSession? userData = WebSocketManager.GetDataFromUser(requester_user_id);
+			SharedUserData? userData = WebSocketManager.GetSharedDataForUser(requester_user_id);
 			if (userData.GetSocialContainer().Friends.Count >= friendsLimit)
 			{
 				if (userData != null)
@@ -269,7 +255,9 @@ namespace GenOnlineService.Controllers
 					WebSocketMessage_Social_FriendsListFull friendsListFullEvent = new();
 					friendsListFullEvent.msg_id = (int)EWebSocketMessageID.SOCIAL_CANT_ADD_FRIEND_LIST_FULL;
 					byte[] bytesJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(friendsListFullEvent));
-					userData.QueueWebsocketSend(bytesJSON);
+
+					// send to all sessions
+					WebsocketHelper.SendToAllSessionsOfUser(requester_user_id, bytesJSON);
 				}
             }
 
@@ -282,9 +270,11 @@ namespace GenOnlineService.Controllers
 			}
 #pragma warning restore CS8602 // Dereference of a possibly null reference.
 
+			await using var db = await _dbFactory.CreateDbContextAsync();
+
 			// the other user must be online, theres no way to add offline people in the client
 
-			UserSession? TargetUserData = WebSocketManager.GetDataFromUser(target_user_id);
+			SharedUserData? TargetUserData = WebSocketManager.GetSharedDataForUser(target_user_id);
 			if (TargetUserData == null)
 			{
 				Response.StatusCode = (int)HttpStatusCode.NotFound;
@@ -312,7 +302,7 @@ namespace GenOnlineService.Controllers
 				userData.GetSocialContainer().Blocked.Remove(target_user_id);
 
 				// - Remove from block list (DB)
-				await Database.Functions.Auth.RemoveBlock(GlobalDatabaseInstance.g_Database, requester_user_id, target_user_id);
+				await Database.Social.RemoveBlock(db, requester_user_id, target_user_id);
 			}
 
 			// If the other user has a pending request to us, just accept it on both ends, they both want to be friends
@@ -326,33 +316,24 @@ namespace GenOnlineService.Controllers
 				// add to list for target
 				TargetUserData.GetSocialContainer().PendingRequests.Add(requester_user_id);
 
-                // inform them via websocket
-				if (TargetUserData != null)
-				{
-					WebSocketMessage_Social_NewFriendRequest socialInform = new WebSocketMessage_Social_NewFriendRequest();
-					socialInform.msg_id = (int)EWebSocketMessageID.SOCIAL_NEW_FRIEND_REQUEST;
-					socialInform.display_name = userData.m_strDisplayName;
-					byte[] bytesJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(socialInform));
-					TargetUserData.QueueWebsocketSend(bytesJSON);
-				}
+				// inform them via websocket
+				WebSocketMessage_Social_NewFriendRequest socialInform = new WebSocketMessage_Social_NewFriendRequest();
+				socialInform.msg_id = (int)EWebSocketMessageID.SOCIAL_NEW_FRIEND_REQUEST;
+				socialInform.display_name = userData.m_strDisplayName;
+				byte[] bytesJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(socialInform));
+
+				WebsocketHelper.SendToAllSessionsOfUser(target_user_id, bytesJSON);
 
                 // add it to DB for target (if not already exists)
-                await Database.Functions.Auth.AddPendingFriendRequest(GlobalDatabaseInstance.g_Database, requester_user_id, target_user_id);
+                await Database.Social.AddPendingFriendRequest(db, requester_user_id, target_user_id);
             }
 
-			if (userData != null)
-			{
-				userData.NotifyFriendslistDirty();
-			}
-
-            if (TargetUserData != null)
-            {
-				TargetUserData.NotifyFriendslistDirty();
-            }
-        }
+			SocialHelper.NotifyFriendslistDirty(requester_user_id);
+			SocialHelper.NotifyFriendslistDirty(target_user_id);
+		}
 
 		[HttpGet("Friends")]
-		[Authorize(Roles = "Player,Monitor")]
+		[Authorize(Roles = "GameClient,ChatClient,GameLauncher,Monitor")]
 		public async Task<APIResult> Get_FriendsAndRequests()
 		{
 			// TODO_ASP: Set error codes properly in all places (and use variable, not magic numbers)
@@ -360,14 +341,14 @@ namespace GenOnlineService.Controllers
 
 			// source user must be signed in
 			Int64 requester_user_id = TokenHelper.GetUserID(this);
-			if (requester_user_id == -1 || WebSocketManager.GetDataFromUser(requester_user_id) == null)
+			if (requester_user_id == -1 || WebSocketManager.GetSharedDataForUser(requester_user_id) == null)
 			{
 				Response.StatusCode = (int)HttpStatusCode.Forbidden;
 				return result;
 			}
 
 			// get websockets & data
-			UserSession? sourceData = WebSocketManager.GetDataFromUser(requester_user_id);
+			SharedUserData? sourceData = WebSocketManager.GetSharedDataForUser(requester_user_id);
 
 #pragma warning disable CS8602 // Dereference of a possibly null reference.
 			HashSet<Int64> setFriends = sourceData.GetSocialContainer().Friends;
@@ -378,7 +359,8 @@ namespace GenOnlineService.Controllers
 			lstCombined.AddRange(setFriends);
 			lstCombined.AddRange(setPendingRequests);
 
-			Dictionary<Int64, string> dictDisplayNames = await Database.Functions.Auth.GetDisplayNameBulk(GlobalDatabaseInstance.g_Database, lstCombined);
+			await using var db = await _dbFactory.CreateDbContextAsync();
+			Dictionary<Int64, string> dictDisplayNames = await Database.Users.GetDisplayNameBulk(db, lstCombined);
 
 			var options = new JsonSerializerOptions
 			{
@@ -410,16 +392,13 @@ namespace GenOnlineService.Controllers
 					{
 						if (dictDisplayNames.ContainsKey(friend_user_id)) // no display name, they probably dont exist anymore, so dont return them
 						{
-							// are they online?
-							UserSession? targetUserData = WebSocketManager.GetDataFromUser(friend_user_id);
+							string strPresence = UserPresence.DetermineUserStatusFromAllSessions(friend_user_id, out bool isOnline);
 
-							string strPresence = targetUserData != null ? UserPresence.DetermineUserStatus(targetUserData) : "Offline";
-							
 							result.friends.Add(new FriendEntry()
 							{
 								user_id = friend_user_id,
 								display_name = dictDisplayNames[friend_user_id],
-								online = targetUserData != null,
+								online = isOnline,
 								presence = strPresence
 							});
 						}
@@ -450,7 +429,7 @@ namespace GenOnlineService.Controllers
 		}
 
 		[HttpGet("Blocked")]
-		[Authorize(Roles = "Player,Monitor")]
+		[Authorize(Roles = "GameClient,ChatClient,GameLauncher,Monitor")]
 		public async Task<APIResult> Get_Blocked()
 		{
 			// TODO_ASP: Set error codes properly in all places (and use variable, not magic numbers)
@@ -458,19 +437,20 @@ namespace GenOnlineService.Controllers
 
 			// source user must be signed in
 			Int64 requester_user_id = TokenHelper.GetUserID(this);
-			if (requester_user_id == -1 || WebSocketManager.GetDataFromUser(requester_user_id) == null)
+			if (requester_user_id == -1 || WebSocketManager.GetSharedDataForUser(requester_user_id) == null)
 			{
 				Response.StatusCode = (int)HttpStatusCode.Forbidden;
 				return result;
 			}
 
-			UserSession? sourceData = WebSocketManager.GetDataFromUser(requester_user_id);
+			SharedUserData? sourceData = WebSocketManager.GetSharedDataForUser(requester_user_id);
 
 #pragma warning disable CS8602 // Dereference of a possibly null reference.
 			HashSet<Int64> setBlocked = sourceData.GetSocialContainer().Blocked;
 #pragma warning restore CS8602 // Dereference of a possibly null reference.
 
-			Dictionary<Int64, string> dictDisplayNames = await Database.Functions.Auth.GetDisplayNameBulk(GlobalDatabaseInstance.g_Database, setBlocked.ToList());
+			await using var db = await _dbFactory.CreateDbContextAsync();
+			Dictionary<Int64, string> dictDisplayNames = await Database.Users.GetDisplayNameBulk(db, setBlocked.ToList());
 
 			var options = new JsonSerializerOptions
 			{
@@ -515,19 +495,19 @@ namespace GenOnlineService.Controllers
 
 		// Block user
 		[HttpPut("Blocked/{target_user_id}")]
-		[Authorize(Roles = "Player")]
+		[Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
 		public async Task Add_Block(Int64 target_user_id)
 		{
 			// source user must be signed in
 			Int64 requester_user_id = TokenHelper.GetUserID(this);
-			if (requester_user_id == -1 || WebSocketManager.GetDataFromUser(requester_user_id) == null)
+			if (requester_user_id == -1 || WebSocketManager.GetSharedDataForUser(requester_user_id) == null)
 			{
 				Response.StatusCode = (int)HttpStatusCode.Forbidden;
 				return;
 			}
 
 			// Check not already blocked
-			UserSession? sourceData = WebSocketManager.GetDataFromUser(requester_user_id);
+			SharedUserData? sourceData = WebSocketManager.GetSharedDataForUser(requester_user_id);
 
 #pragma warning disable CS8602 // Dereference of a possibly null reference.
 			if (sourceData.GetSocialContainer().Blocked.Contains(target_user_id))
@@ -537,7 +517,7 @@ namespace GenOnlineService.Controllers
 			}
 
 			// Target user cannot be an admin
-			UserSession? targetData = WebSocketManager.GetDataFromUser(target_user_id);
+			SharedUserData? targetData = WebSocketManager.GetSharedDataForUser(target_user_id);
 			if (targetData != null)
 			{
 				if (targetData.IsAdmin())
@@ -556,10 +536,12 @@ namespace GenOnlineService.Controllers
 			//// - Remove from target friends, cache (if present)
 			//// - Add to block list (cache)
 			//// - Add to block list (DB)
+			///
+			await using var db = await _dbFactory.CreateDbContextAsync();
 
 			// Remove from source friends, DB (if present)
 			// Remove from target friends, DB (if present)
-			await Database.Functions.Auth.RemoveFriendship(GlobalDatabaseInstance.g_Database, requester_user_id, target_user_id);
+			await Database.Social.RemoveFriendship(db, requester_user_id, target_user_id);
 
             // Remove from source friends, Cache (if present - Remove checks Contains)
             sourceData.GetSocialContainer().Friends.Remove(target_user_id);
@@ -574,22 +556,15 @@ namespace GenOnlineService.Controllers
 			sourceData.GetSocialContainer().Blocked.Add(target_user_id);
 
 			// Add to block list (db)
-			await Database.Functions.Auth.AddBlock(GlobalDatabaseInstance.g_Database, requester_user_id, target_user_id);
+			await Database.Social.AddBlock(db, requester_user_id, target_user_id);
 
-			if (sourceData != null)
-            {
-				sourceData.NotifyFriendslistDirty();
-            }
-
-            if (targetData != null)
-            {
-				targetData.NotifyFriendslistDirty();
-            }
-        }
+			SocialHelper.NotifyFriendslistDirty(requester_user_id);
+			SocialHelper.NotifyFriendslistDirty(target_user_id);
+		}
 
 		// Unblock user
 		[HttpDelete("Blocked/{target_user_id}")]
-		[Authorize(Roles = "Player")]
+		[Authorize(Roles = "GameClient,ChatClient,GameLauncher")]
 		public async Task Remove_Block(Int64 target_user_id)
 		{
 			// We must:
@@ -598,13 +573,13 @@ namespace GenOnlineService.Controllers
 
 			// source user must be signed in
 			Int64 requester_user_id = TokenHelper.GetUserID(this);
-			if (requester_user_id == -1 || WebSocketManager.GetDataFromUser(requester_user_id) == null)
+			if (requester_user_id == -1 || WebSocketManager.GetSharedDataForUser(requester_user_id) == null)
 			{
 				Response.StatusCode = (int)HttpStatusCode.Forbidden;
 				return;
 			}
 
-			UserSession? sourceData = WebSocketManager.GetDataFromUser(requester_user_id);
+			SharedUserData? sourceData = WebSocketManager.GetSharedDataForUser(requester_user_id);
 
 			// Check blocked
 #pragma warning disable CS8602 // Dereference of a possibly null reference.
@@ -619,13 +594,11 @@ namespace GenOnlineService.Controllers
 			sourceData.GetSocialContainer().Blocked.Remove(target_user_id);
 
 			// - Remove from block list (DB)
-			await Database.Functions.Auth.RemoveBlock(GlobalDatabaseInstance.g_Database, requester_user_id, target_user_id);
+			await using var db = await _dbFactory.CreateDbContextAsync();
+			await Database.Social.RemoveBlock(db, requester_user_id, target_user_id);
 
 			// only the source user needs an update here
-			if (sourceData != null)
-            {
-				sourceData.NotifyFriendslistDirty();
-            }
-        }
+			SocialHelper.NotifyFriendslistDirty(requester_user_id);
+		}
 	}
 }

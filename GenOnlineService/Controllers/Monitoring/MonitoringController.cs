@@ -19,9 +19,11 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Org.BouncyCastle.Security;
 using System;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.WebSockets;
 using System.Security.Claims;
@@ -62,7 +64,7 @@ namespace GenOnlineService.Controllers
 	{
 		public string? name { get; set; }
 		public string? status { get; set; }
-		public string? client_id { get; set; }
+		public KnownClients.EKnownClients? client_id { get; set; }
 		public string? duration { get; set; }
 	}
 
@@ -91,11 +93,13 @@ namespace GenOnlineService.Controllers
 	[Route("env/{environment}/contract/{contract_version}/[controller]")]
 	public class MonitoringController : ControllerBase
 	{
+		private readonly IDbContextFactory<AppDbContext> _dbFactory;
 		private readonly ILogger<MonitoringController> _logger;
 
-		public MonitoringController(ILogger<MonitoringController> logger)
+		public MonitoringController(IDbContextFactory<AppDbContext> dbFactory, ILogger<MonitoringController> logger)
 		{
 			_logger = logger;
+			_dbFactory = dbFactory;
 		}
 
 		[Route("ActiveUsers")]
@@ -117,16 +121,31 @@ namespace GenOnlineService.Controllers
 
 			// TODO_QUICKMATCH: We chekc maps are big enough, but the reverse needs checked too - dont let 8 playrs join a 6-8 ffa if only map is defcon6 for example
 
-			var allData = WebSocketManager.GetUserDataCache();
-			foreach (var sessionData in allData)
+			HashSet<Int64> setUsersAlreadyProcessed = new();
+			ConcurrentDictionary<EUserSessionType, ConcurrentDictionary<Int64, UserSession>> allData = WebSocketManager.GetUserDataCache();
+			foreach (var sessionDataPerClientType in allData)
 			{
-				GET_ActiveUsers_UserEntry userEntry = new();
-				userEntry.name = sessionData.Value.m_strDisplayName;
-				userEntry.status = UserPresence.DetermineUserStatus(sessionData.Value);
-				userEntry.client_id = sessionData.Value.m_client_id;
-				userEntry.duration = TimeSpanToHumanReadableString(sessionData.Value.GetDuration());
+				foreach (var sessionData in sessionDataPerClientType.Value)
+				{
+					if (setUsersAlreadyProcessed.Contains(sessionData.Value.m_UserID))
+					{
+						continue;
+					}
+					setUsersAlreadyProcessed.Add(sessionData.Value.m_UserID);
 
-				result.active_users.Add(userEntry);
+					SharedUserData? userSharedData = WebSocketManager.GetSharedDataForUser(sessionData.Value.m_UserID);
+
+					if (userSharedData != null)
+					{
+						GET_ActiveUsers_UserEntry userEntry = new();
+						userEntry.name = userSharedData.m_strDisplayName;
+						userEntry.status = UserPresence.DetermineUserStatusFromAllSessions(sessionData.Key, out bool isOnline);
+						userEntry.client_id = sessionData.Value.m_client_id;
+						userEntry.duration = TimeSpanToHumanReadableString(sessionData.Value.GetDuration());
+
+						result.active_users.Add(userEntry);
+					}
+				}
 			}
 
 
@@ -149,7 +168,8 @@ namespace GenOnlineService.Controllers
 				// db call
 				try
 				{
-					string strDontCare = await Database.Functions.Auth.GetDisplayName(GlobalDatabaseInstance.g_Database, 0);
+					await using var db = await _dbFactory.CreateDbContextAsync();
+					string strDontCare = await Database.Users.GetDisplayName(db, 0);
 					result.ok = true;
 				}
 				catch
@@ -175,7 +195,10 @@ namespace GenOnlineService.Controllers
 				// db call
 				try
 				{
-					GenOnlineService.Controllers.LoginWithToken.LoginWithToken loginWithTokenController = new GenOnlineService.Controllers.LoginWithToken.LoginWithToken();
+					using var scope = ServiceLocator.Services.CreateScope();
+					var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+
+					GenOnlineService.Controllers.LoginWithToken.LoginWithToken loginWithTokenController = new GenOnlineService.Controllers.LoginWithToken.LoginWithToken(factory);
 					GenOnlineService.Controllers.LoginWithToken.POST_LoginWithToken_Result internalResult = (GenOnlineService.Controllers.LoginWithToken.POST_LoginWithToken_Result)await loginWithTokenController.Post_InternalHandler("{\"challenge\": \"abc\", \"token\": \"iamatest\", \"client_id\": \"gen_online_60hz\"}", IPAddress.Loopback.ToString(), true);
 					return internalResult;
 				}
@@ -253,7 +276,7 @@ namespace GenOnlineService.Controllers
 			{
 				try
 				{
-					GenOnlineService.Controllers.CheckLoginController checkLoginController = new GenOnlineService.Controllers.CheckLoginController();
+					GenOnlineService.Controllers.CheckLoginController checkLoginController = new GenOnlineService.Controllers.CheckLoginController(_dbFactory);
 					APIResult internalResult = await checkLoginController.Post_InternalHandler("{\"challenge\": \"abc\", \"nonce\": \"def\", \"code\": \"iamatest\", \"client_id\": \"gen_online_30hz\"}", IPAddress.Loopback.ToString(), true);
 					return internalResult;
 				}

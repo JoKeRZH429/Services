@@ -47,7 +47,7 @@ namespace GenOnlineService.Controllers
 		}
 
 		[HttpGet(Name = "GetRooms")]
-		[Authorize(Roles = "Player,Monitor")]
+		[Authorize(Roles = "GameClient,ChatClient,GameLauncher,Monitor")]
 		public async Task<APIResult> Get()
 		{
 			RouteHandler_GET_Rooms_Result result = new RouteHandler_GET_Rooms_Result();

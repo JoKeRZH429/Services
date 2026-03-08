@@ -16,21 +16,21 @@
 **    along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+using Amazon.S3;
+using Amazon.S3.Model;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using System;
+using System.ComponentModel.DataAnnotations;
 using System.Net;
 using System.Net.WebSockets;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
-using Amazon.S3;
-using Amazon.S3.Model;
-using System.ComponentModel.DataAnnotations;
-using static Database.Functions.Lobby;
 
 namespace GenOnlineService.Controllers
 {
@@ -117,6 +117,12 @@ namespace GenOnlineService.Controllers
 	[Route("env/{environment}/contract/{contract_version}/MatchHistory")]
 	public class API_MatchHistoryController : ControllerBase
 	{
+		private readonly IDbContextFactory<AppDbContext> _dbFactory;
+		public API_MatchHistoryController(IDbContextFactory<AppDbContext> dbFactory)
+		{
+			_dbFactory = dbFactory;
+		}
+
 		[HttpGet("{startingMatchID}")]
 		// TODO: Move to Authorize for this
 		public async Task<APIResult> GetHistorySince([FromHeader(Name = "X-Api-Key")] string apiKey, Int64 startingMatchID)
@@ -137,8 +143,8 @@ namespace GenOnlineService.Controllers
 
 			const Int64 maxLobbiesPerRequest = 99; // actually 100, but query is <= 
 
-			
-			result.matches = await Database.Functions.MatchHistory.GetMatchesInRange(GlobalDatabaseInstance.g_Database, startingMatchID, startingMatchID + maxLobbiesPerRequest);
+			await using var db = await _dbFactory.CreateDbContextAsync();
+			result.matches = await Database.MatchHistory.GetMatchesInRange(db, startingMatchID, startingMatchID + maxLobbiesPerRequest);
 
 			return result;
 		}
@@ -161,7 +167,8 @@ namespace GenOnlineService.Controllers
 				return result;
 			}
 
-			result.highest_match_id = await Database.Functions.MatchHistory.GetHighestMatchID(GlobalDatabaseInstance.g_Database);
+			await using var db = await _dbFactory.CreateDbContextAsync();
+			result.highest_match_id = await Database.MatchHistory.GetHighestMatchID(db);
 			return result;
 		}
 	}
@@ -171,15 +178,17 @@ namespace GenOnlineService.Controllers
 	public class MatchUpdateController : ControllerBase
 	{
 		private readonly ILogger<LobbiesController> _logger;
+		private readonly LobbyManager _lobbyManager;
 
-		public MatchUpdateController(ILogger<LobbiesController> logger)
+		public MatchUpdateController(LobbyManager lobbyManager, ILogger<LobbiesController> logger)
 		{
 			_logger = logger;
+			_lobbyManager = lobbyManager;
 		}
 
 		[HttpPut]
 		[RequestSizeLimit(2097152)] // 2MB
-		[Authorize(Roles = "Player")]
+		[Authorize(Roles = "GameClient")]
 		public async Task<APIResult> Post()
 		{
 			this.HttpContext.Request.EnableBuffering();
@@ -215,13 +224,14 @@ namespace GenOnlineService.Controllers
 
 			// must be in a lobby
 			Int64 user_id = TokenHelper.GetUserID(this);
-			if (user_id != -1)
+			EUserSessionType sessionType = TokenHelper.GetSessionType(this);
+			if (user_id != -1 && SessionHelpers.SessionTypeHasAccessTo(sessionType, ESessionAccessType.Gameplay))
 			{
-				UserSession? sourceData = WebSocketManager.GetDataFromUser(user_id);
+				UserSession? sourceData = WebSocketManager.GetSessionFromUser(user_id, sessionType);
 				if (sourceData != null)
 				{
 					// lobby cant have AI and must have at least 2 human players at some point
-					Lobby? lobby = LobbyManager.GetLobby(sourceData.currentLobbyID);
+					Lobby? lobby = _lobbyManager.GetLobby(sourceData.currentLobbyID);
 					if (lobby == null || !lobby.WasPVPAtStart() || lobby.HadAIAtStart())
 					{
 						Response.StatusCode = (int)HttpStatusCode.NotAcceptable;

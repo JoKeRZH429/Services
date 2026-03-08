@@ -364,7 +364,8 @@ public class DiscordBot
 						}
 						else if (message.Content.ToLower() == "!lobbies")
 						{
-							int numLobbies = LobbyManager.GetNumLobbies();
+							var lobbyManager = ServiceLocator.Services.GetRequiredService<LobbyManager>();
+							int numLobbies = lobbyManager.GetNumLobbies();
 							string strMessage = String.Format("There are currently {0} lobbies.", numLobbies);
 
 							if (enumChannelID == EDiscordChannelIDs.DirectMessage)
@@ -495,14 +496,21 @@ public class DiscordBot
 										string strUser = string.Join(' ', strComponents.Skip(1));
 										if (Int64.TryParse(strUser, out Int64 TargetUserID))
 										{
-											UserSession? targetData = GenOnlineService.WebSocketManager.GetDataFromUser(TargetUserID);
+											SharedUserData? targetData = GenOnlineService.WebSocketManager.GetSharedDataForUser(TargetUserID);
 											
 											if (targetData != null)
 											{
 												PushChannelMessage(EDiscordChannelIDs.AdminCommands, $"User {TargetUserID} ({targetData.m_strDisplayName}) has been kicked from the server.");
 
-												UserWebSocketInstance? oldWS = GenOnlineService.WebSocketManager.GetWebSocketForSession(targetData);
-												await GenOnlineService.WebSocketManager.DeleteSession(TargetUserID, oldWS, true);
+												// we need to kill all websockets they have
+												List<UserSession> lstUserSessions = GenOnlineService.WebSocketManager.GetAllDataFromUser(TargetUserID);
+												foreach (UserSession userSession in lstUserSessions)
+												{
+													UserWebSocketInstance? oldWS = GenOnlineService.WebSocketManager.GetWebSocketForSession(userSession);
+													await GenOnlineService.WebSocketManager.DeleteSession(TargetUserID, userSession.GetSessionType(), oldWS, true);
+												}
+
+												
 											}
 											else
 											{
@@ -558,26 +566,20 @@ public class DiscordBot
 									{
 										string strname = string.Join(' ', strComponents.Skip(1));
 
-										bool bFound = false;
-										var sessions = GenOnlineService.WebSocketManager.GetUserDataCache();
-										foreach (var session in sessions)
-										{
-											if (session.Value.m_strDisplayName.ToLower() == strname.ToLower())
-											{
-												PushChannelMessage(EDiscordChannelIDs.AdminCommands, $"User {session.Value.m_strDisplayName} is user ID {session.Key}.");
-												bFound = true;
-												break;
-											}
-										}
 
-										if (!bFound)
+										SharedUserData? userDataFound = GenOnlineService.WebSocketManager.GetSharedDataForUser(strname);
+										if (userDataFound != null)
+										{
+											PushChannelMessage(EDiscordChannelIDs.AdminCommands, $"User {userDataFound.m_strDisplayName} is user ID {userDataFound.m_UserID}.");
+										}
+										else
 										{
 											PushChannelMessage(EDiscordChannelIDs.AdminCommands, $"User {strname} is not active on the server.");
 										}
 									}
 									else
 									{
-										PushChannelMessage(EDiscordChannelIDs.AdminCommands, "Invalid Command Syntax. !kick <user_id> (e.g. !kick 123)");
+										PushChannelMessage(EDiscordChannelIDs.AdminCommands, "Invalid Command Syntax. !whois <display name> (e.g. !whois x64)");
 									}
 								}
 								else
@@ -643,22 +645,25 @@ public class DiscordBot
 
 										// send to everyone
 										int numDelivered = 0;
-										foreach (KeyValuePair<Int64, UserSession> sessionData in GenOnlineService.WebSocketManager.GetUserDataCache())
+										foreach (var sessionDataByClient in GenOnlineService.WebSocketManager.GetUserDataCache())
 										{
-											UserSession sess = sessionData.Value;
-
-											if (sess != null)
+											foreach (var sessionData in sessionDataByClient.Value)
 											{
-												if (sess.currentLobbyID == -1)
-												{
-													sess.QueueWebsocketSend(outboundMsgRoomJSON);
-												}
-												else
-												{
-													sess.QueueWebsocketSend(outboundMsgLobbyJSON);
-												}
+												UserSession sess = sessionData.Value;
 
-												++numDelivered;
+												if (sess != null)
+												{
+													if (sess.currentLobbyID == -1)
+													{
+														sess.QueueWebsocketSend(outboundMsgRoomJSON);
+													}
+													else
+													{
+														sess.QueueWebsocketSend(outboundMsgLobbyJSON);
+													}
+
+													++numDelivered;
+												}
 											}
 										}
 
