@@ -33,6 +33,12 @@ public class AppDbContext : DbContext
 	public DbSet<MatchHistoryEntry> MatchHistory => Set<MatchHistoryEntry>();
 	public DbSet<UserStatsEntry> UserStats => Set<UserStatsEntry>();
 
+	public DbSet<FriendEntry> Friends => Set<FriendEntry>();
+
+	public DbSet<BlockedUserEntry> BlockedUsers => Set<BlockedUserEntry>();
+
+	public DbSet<FriendRequestEntry> FriendRequests => Set<FriendRequestEntry>();
+
 	public AppDbContext(DbContextOptions<AppDbContext> options)
 		: base(options)
 	{
@@ -53,5 +59,8 @@ public class AppDbContext : DbContext
 		modelBuilder.ApplyConfiguration(new PendingLoginConfiguration());
 		modelBuilder.ApplyConfiguration(new MatchHistoryConfiguration());
 		modelBuilder.ApplyConfiguration(new UserStatsConfiguration());
+		modelBuilder.ApplyConfiguration(new FriendConfiguration());
+		modelBuilder.ApplyConfiguration(new FriendRequestConfiguration());
+		modelBuilder.ApplyConfiguration(new BlockedUserConfiguration());
 	}
 }

@@ -86,6 +86,7 @@ namespace GenOnlineService.Controllers
 			SharedUserData? sharedUserDataSource = GenOnlineService.WebSocketManager.GetSharedDataForUser(source_user_id);
 			SharedUserData? sharedUserDataTarget = GenOnlineService.WebSocketManager.GetSharedDataForUser(target_user_id);
 
+			await using var db = await _dbFactory.CreateDbContextAsync();
 			// NOTE: target user does NOT need to be signed in
 
 			// remove the request from requestor (online version)
@@ -94,12 +95,12 @@ namespace GenOnlineService.Controllers
 #pragma warning restore CS8602 // Dereference of a possibly null reference.
 
             // remove the request from requestor (db)
-            await Database.Functions.Auth.RemovePendingFriendRequest(GlobalDatabaseInstance.g_Database, source_user_id, target_user_id);
+            await Database.Social.RemovePendingFriendRequest(db, source_user_id, target_user_id);
 
             // Add to both players friends list (online version and db)
 
             // SHARED db (we only have to add this once and it covers both players)
-            await Database.Functions.Auth.CreateFriendship(GlobalDatabaseInstance.g_Database, source_user_id, target_user_id);
+            await Database.Social.CreateFriendship(db, source_user_id, target_user_id);
 
             // source player
             {
@@ -182,7 +183,8 @@ namespace GenOnlineService.Controllers
 
 			// remove the request from requestor (db)
 			// NOTE: Target and source are inverted here because the target is actually the person who sent the request, source is the person taking action on the friend request
-			await Database.Functions.Auth.RemovePendingFriendRequest(GlobalDatabaseInstance.g_Database, target_user_id, source_user_id);
+			await using var db = await _dbFactory.CreateDbContextAsync();
+			await Database.Social.RemovePendingFriendRequest(db, target_user_id, source_user_id);
 
 			SocialHelper.NotifyFriendslistDirty(source_user_id);
 			SocialHelper.NotifyFriendslistDirty(target_user_id);
@@ -222,7 +224,8 @@ namespace GenOnlineService.Controllers
 			}
 
 			// remove the request from requestor (db)
-			await Database.Functions.Auth.RemoveFriendship(GlobalDatabaseInstance.g_Database, source_user_id, target_user_id);
+			await using var db = await _dbFactory.CreateDbContextAsync();
+			await Database.Social.RemoveFriendship(db, source_user_id, target_user_id);
 
 			// TODO_SOCIAL: This tells the client to do a GET, we could just send them their friends list directly to reduce latency + calls to service
 			SocialHelper.NotifyFriendslistDirty(source_user_id);
@@ -267,6 +270,8 @@ namespace GenOnlineService.Controllers
 			}
 #pragma warning restore CS8602 // Dereference of a possibly null reference.
 
+			await using var db = await _dbFactory.CreateDbContextAsync();
+
 			// the other user must be online, theres no way to add offline people in the client
 
 			SharedUserData? TargetUserData = WebSocketManager.GetSharedDataForUser(target_user_id);
@@ -297,7 +302,7 @@ namespace GenOnlineService.Controllers
 				userData.GetSocialContainer().Blocked.Remove(target_user_id);
 
 				// - Remove from block list (DB)
-				await Database.Functions.Auth.RemoveBlock(GlobalDatabaseInstance.g_Database, requester_user_id, target_user_id);
+				await Database.Social.RemoveBlock(db, requester_user_id, target_user_id);
 			}
 
 			// If the other user has a pending request to us, just accept it on both ends, they both want to be friends
@@ -320,7 +325,7 @@ namespace GenOnlineService.Controllers
 				WebsocketHelper.SendToAllSessionsOfUser(target_user_id, bytesJSON);
 
                 // add it to DB for target (if not already exists)
-                await Database.Functions.Auth.AddPendingFriendRequest(GlobalDatabaseInstance.g_Database, requester_user_id, target_user_id);
+                await Database.Social.AddPendingFriendRequest(db, requester_user_id, target_user_id);
             }
 
 			SocialHelper.NotifyFriendslistDirty(requester_user_id);
@@ -531,10 +536,12 @@ namespace GenOnlineService.Controllers
 			//// - Remove from target friends, cache (if present)
 			//// - Add to block list (cache)
 			//// - Add to block list (DB)
+			///
+			await using var db = await _dbFactory.CreateDbContextAsync();
 
 			// Remove from source friends, DB (if present)
 			// Remove from target friends, DB (if present)
-			await Database.Functions.Auth.RemoveFriendship(GlobalDatabaseInstance.g_Database, requester_user_id, target_user_id);
+			await Database.Social.RemoveFriendship(db, requester_user_id, target_user_id);
 
             // Remove from source friends, Cache (if present - Remove checks Contains)
             sourceData.GetSocialContainer().Friends.Remove(target_user_id);
@@ -549,7 +556,7 @@ namespace GenOnlineService.Controllers
 			sourceData.GetSocialContainer().Blocked.Add(target_user_id);
 
 			// Add to block list (db)
-			await Database.Functions.Auth.AddBlock(GlobalDatabaseInstance.g_Database, requester_user_id, target_user_id);
+			await Database.Social.AddBlock(db, requester_user_id, target_user_id);
 
 			SocialHelper.NotifyFriendslistDirty(requester_user_id);
 			SocialHelper.NotifyFriendslistDirty(target_user_id);
@@ -587,7 +594,8 @@ namespace GenOnlineService.Controllers
 			sourceData.GetSocialContainer().Blocked.Remove(target_user_id);
 
 			// - Remove from block list (DB)
-			await Database.Functions.Auth.RemoveBlock(GlobalDatabaseInstance.g_Database, requester_user_id, target_user_id);
+			await using var db = await _dbFactory.CreateDbContextAsync();
+			await Database.Social.RemoveBlock(db, requester_user_id, target_user_id);
 
 			// only the source user needs an update here
 			SocialHelper.NotifyFriendslistDirty(requester_user_id);

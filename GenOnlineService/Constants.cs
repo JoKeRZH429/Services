@@ -223,9 +223,9 @@ namespace GenOnlineService
 
 				// get and cache social container
 				UserSocialContainer socialContainer = new();
-				socialContainer.Friends = await Database.Functions.Auth.GetFriends(GlobalDatabaseInstance.g_Database, ownerID);
-				socialContainer.PendingRequests = await Database.Functions.Auth.GetPendingFriendsRequests(GlobalDatabaseInstance.g_Database, ownerID);
-				socialContainer.Blocked = await Database.Functions.Auth.GetBlocked(GlobalDatabaseInstance.g_Database, ownerID);
+				socialContainer.Friends = await Database.Social.GetFriends(_db, ownerID);
+				socialContainer.PendingRequests = await Database.Social.GetPendingFriendsRequests(_db, ownerID);
+				socialContainer.Blocked = await Database.Social.GetBlocked(_db, ownerID);
 
 				// get stats
 				PlayerStats GameStats = await Database.UserStats.GetPlayerStats(_db, ownerID);
