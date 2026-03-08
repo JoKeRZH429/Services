@@ -1401,13 +1401,17 @@ namespace GenOnlineService
 
 		public async Task<bool> DeleteLobby(Lobby lobby)
 		{
+			using var scope = _services.CreateScope();
+			var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+			await using var db = await factory.CreateDbContextAsync();
+
 			if (lobby.State != ELobbyState.COMPLETE)
 			{
 				// make done
 				await lobby.UpdateState(ELobbyState.COMPLETE);
 
 				// attempt to commit it
-				await Database.Functions.Lobby.CommitLobbyToMatchHistory(GlobalDatabaseInstance.g_Database, lobby);
+				await Database.MatchHistory.CommitLobbyToMatchHistory(db, lobby);
 			}
 
 			// delete
@@ -1420,17 +1424,13 @@ namespace GenOnlineService
 				// unsubscribe from self-destruct event
 				lobby.OnLobbyNeedsDestroyed -= HandleLobbyNeedsDestroyed;
 
-				using var scope = _services.CreateScope();
-				var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-				await using var db = await factory.CreateDbContextAsync();
-
 				// make sure we have a winner
 				await Database.MatchHistory.DetermineLobbyWinnerIfNotPresent(db, lobby);
 
 				// if its a quickmatch, update our leaderboards
 				if (lobby.LobbyType == ELobbyType.QuickMatch)
 				{
-					await Database.Functions.Leaderboards.UpdateLeaderboardAndElo(db, GlobalDatabaseInstance.g_Database, lobby);
+					await Database.MatchHistory.UpdateLeaderboardAndElo(db, lobby);
                 }
 			}
 

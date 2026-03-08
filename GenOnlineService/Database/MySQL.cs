@@ -52,83 +52,15 @@ using static Database.Functions.Lobby;
 
 
 
-
-
-
-
-/*
- * 2, // USA
-        3, // CHINA
-        4, // GLA
-        5, // USA Super Weapon
-        6, // USA Laser
-        7, // USA Airforce
-        8, // China Tank
-        9, // China Infantry
-        10, // China Nuke
-        11, // GLA Toxin
-        12, // GLA Demo
-        13 // GLA Stealth
-*/
-
-
-
 namespace Database
 {
 	public static class Functions
 	{
 			public static class Lobby
 		{
-
-			// Called when a lobby is deleted, thats the true end of a match
-			public async static Task CommitLobbyToMatchHistory(MySQLInstance m_Inst, GenOnlineService.Lobby lobby)
-			{
-				if (lobby.MatchID != 0) // 0 is invalid
-				{
-					await m_Inst.Query("UPDATE match_history SET finished=true, time_finished=current_timestamp() WHERE match_id=@match_id AND finished=false LIMIT 1;",
-					new()
-					{
-						{ "@match_id", lobby.MatchID }
-					});
-				}
-			}
-
-			public enum EScreenshotType
-			{
-				NONE = -1,
-				SCREENSHOT_TYPE_LOADSCREEN = 0,
-				SCREENSHOT_TYPE_GAMEPLAY = 1,
-				SCREENSHOT_TYPE_SCORESCREEN = 2
-			}
 			
 
-			public enum EMetadataFileType
-			{
-				UNKNOWN = -1,
-				FILE_TYPE_SCREENSHOT = 0,
-				FILE_TYPE_REPLAY = 1
-			};
-
-			public async static Task AttachMatchHistoryMetadata(MySQLInstance m_Inst, UInt64 MatchID, int slotIndex, string strVal, EMetadataFileType fileType)
-			{
-				if (MatchID != 0) // 0 is invalid
-				{
-					if (slotIndex < 0)
-					{
-						return;
-					}
-
-					CMySQLResult resMember = await m_Inst.Query(String.Format("UPDATE match_history SET member_slot_{0} = JSON_ARRAY_APPEND(member_slot_{0}, '$.metadata', JSON_OBJECT('file_name', @file_name, 'file_type', @file_type)) WHERE match_id = @match_id;", slotIndex),
-						new()
-						{
-						{ "@match_id", MatchID },
-						{ "@file_name", strVal },
-						{ "@file_type", (int)fileType },
-						}
-					);
-				}
-			}
-
+			
 			public class IntToBoolConverter : JsonConverter<bool>
 			{
 				public override bool Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)

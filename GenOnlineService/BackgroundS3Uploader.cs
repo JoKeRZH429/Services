@@ -3,6 +3,7 @@
 using Amazon.S3;
 using Amazon.S3.Model;
 using GenOnlineService;
+using Microsoft.EntityFrameworkCore;
 using MySqlX.XDevAPI.Common;
 using Sentry.Protocol;
 using System.Collections.Concurrent;
@@ -100,7 +101,7 @@ static class BackgroundS3Uploader
 
             string strPerMatchUserIDKey = Helpers.ComputeMD5Hash(String.Format("{0}_{1}", entry.m_MatchID, entry.m_UserID)); ;
             string strFileName = null;
-            Database.Functions.Lobby.EMetadataFileType fileType = EMetadataFileType.UNKNOWN;
+            EMetadataFileType fileType = EMetadataFileType.UNKNOWN;
 
 
 			if (entry.m_uploadType == ES3UploadType.Screenshot)
@@ -188,8 +189,11 @@ static class BackgroundS3Uploader
                 var response = await client.PutObjectAsync(putRequest);
                 Console.WriteLine($"SCREENSHOT uploaded successfully. {entry.m_FileData.Count} bytes. HHTTP Status Code: {response.HttpStatusCode}");
 
-                // store in DB
-                await Database.Functions.Lobby.AttachMatchHistoryMetadata(GlobalDatabaseInstance.g_Database, entry.m_MatchID, entry.m_slotIndexInLobby, strFileName, fileType);
+				// store in DB
+				using var scope = ServiceLocator.Services.CreateScope();
+				var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+				await using var db = await factory.CreateDbContextAsync();
+				await Database.MatchHistory.AttachMatchHistoryMetadata(db, entry.m_MatchID, entry.m_slotIndexInLobby, strFileName, fileType);
             }
             catch (Exception ex)
             {

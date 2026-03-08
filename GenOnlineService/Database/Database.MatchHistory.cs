@@ -25,6 +25,7 @@ using Microsoft.EntityFrameworkCore.Query;
 using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
@@ -145,6 +146,23 @@ public class MatchHistoryConfiguration : IEntityTypeConfiguration<MatchHistoryEn
 // TODO_EFCORE: put everything in below namespace
 namespace GenOnlineService
 {
+
+	public enum EScreenshotType
+	{
+		NONE = -1,
+		SCREENSHOT_TYPE_LOADSCREEN = 0,
+		SCREENSHOT_TYPE_GAMEPLAY = 1,
+		SCREENSHOT_TYPE_SCORESCREEN = 2
+	}
+
+
+	public enum EMetadataFileType
+	{
+		UNKNOWN = -1,
+		FILE_TYPE_SCREENSHOT = 0,
+		FILE_TYPE_REPLAY = 1
+	};
+
 	public struct MemberMetadataModel
 	{
 		public string file_name { get; set; }
@@ -183,8 +201,8 @@ namespace Database
 	// TODO_EFCORE: Consider moving to zero-serialization model
 	public static class MatchHistory
 	{
-			private static readonly Expression<Func<MatchHistoryEntry, string?>>[] _slotSelectors =
-		{
+		private static readonly Expression<Func<MatchHistoryEntry, string?>>[] _slotSelectors =
+	{
 			m => m.MemberSlot0,
 			m => m.MemberSlot1,
 			m => m.MemberSlot2,
@@ -682,6 +700,292 @@ namespace Database
 			long? result = await _getHighestMatchId(db);
 			return result ?? -1;
 		}
+
+		// Called when a lobby is deleted, thats the true end of a match
+		public static async Task CommitLobbyToMatchHistory(AppDbContext db, GenOnlineService.Lobby lobby)
+		{
+			if (lobby.MatchID == 0)
+				return;
+
+			await db.MatchHistory
+				.Where(m => m.MatchId == (long)lobby.MatchID && !m.Finished)
+				.ExecuteUpdateAsync(s => s
+					.SetProperty(m => m.Finished, true)
+					.SetProperty(m => m.TimeFinished, DateTime.UtcNow));
+		}
+
+		// METADATA
+		private static Expression<Func<SetPropertyCalls<MatchHistoryEntry>, SetPropertyCalls<MatchHistoryEntry>>>
+	BuildSlotSetter(int slotIndex, string updatedJson)
+		{
+			var param = Expression.Parameter(typeof(SetPropertyCalls<MatchHistoryEntry>), "s");
+
+			var call = Expression.Call(
+				param,
+				nameof(SetPropertyCalls<MatchHistoryEntry>.SetProperty),
+				typeArguments: null,
+				arguments: new Expression[]
+				{
+			_slotSelectors[slotIndex],
+			Expression.Constant(updatedJson, typeof(string))
+				}
+			);
+
+			return Expression.Lambda<Func<SetPropertyCalls<MatchHistoryEntry>, SetPropertyCalls<MatchHistoryEntry>>>(
+				call,
+				param
+			);
+		}
+
+
+		public static async Task AttachMatchHistoryMetadata(
+	AppDbContext db,
+	ulong matchId,
+	int slotIndex,
+	string fileName,
+	EMetadataFileType fileType)
+		{
+			if (matchId == 0 || slotIndex < 0 || slotIndex > 7)
+				return;
+
+			// 1. Load JSON for this slot
+			string? json = await _getMemberSlot(db, (long)matchId, slotIndex);
+			if (string.IsNullOrEmpty(json))
+				return;
+
+			// 2. Deserialize
+			MatchdataMemberModel? modelN = JsonSerializer.Deserialize<MatchdataMemberModel?>(json);
+			if (modelN == null)
+				return;
+
+			MatchdataMemberModel model = modelN.Value;
+
+			// 3. Ensure metadata list exists
+			model.metadata ??= new List<MemberMetadataModel>();
+
+			// 4. Append metadata entry
+			model.metadata.Add(new MemberMetadataModel
+			{
+				file_name = fileName,
+				file_type = (EMetadataFileType)fileType
+			});
+
+			// 5. Serialize back
+			string updatedJson = JsonSerializer.Serialize(model);
+
+			// 6. Build setter expression
+			var setter = BuildSlotSetter(slotIndex, updatedJson);
+
+			// 7. Execute update (single SQL UPDATE)
+			await db.MatchHistory
+				.Where(m => m.MatchId == (long)matchId)
+				.ExecuteUpdateAsync(setter);
+		}
+
+		// ELO
+		public static async Task UpdateLeaderboardAndElo(
+	AppDbContext db,
+	GenOnlineService.Lobby lobby)
+		{
+			if (lobby.LobbyType != ELobbyType.QuickMatch)
+				return;
+
+			int dayOfYear = lobby.TimeCreated.DayOfYear;
+			int monthOfYear = lobby.TimeCreated.Month;
+			int year = lobby.TimeCreated.Year;
+
+			var members = await LoadMatchMembersAsync(db, (long)lobby.MatchID);
+			if (members.Count == 0)
+				return;
+
+			await UpdateCurrentEloAsync(db, members);
+			await UpdatePeriodEloAndLeaderboardsAsync(
+				db, members, dayOfYear, monthOfYear, year);
+		}
+		private static async Task<List<MatchdataMemberModel>> LoadMatchMembersAsync(
+			AppDbContext db, long matchId)
+		{
+			var slots = await _getAllMemberSlots(db, matchId);
+			var list = new List<MatchdataMemberModel>();
+
+			if (slots == null)
+				return list;
+
+			for (int i = 0; i < slots.Length; i++)
+			{
+				if (!string.IsNullOrEmpty(slots[i]))
+				{
+					MatchdataMemberModel? model = JsonSerializer.Deserialize<MatchdataMemberModel?>(slots[i]!);
+					if (model != null)
+						list.Add(model.Value);
+				}
+			}
+
+			return list;
+		}
+
+		private static async Task UpdateCurrentEloAsync(
+	AppDbContext db,
+	List<MatchdataMemberModel> members)
+		{
+			var userIds = members.Select(m => (long)m.user_id).ToList();
+			var dictElo = await Database.Users.GetBulkELOData(db, userIds);
+
+			// --- ELO pairwise loop (ref-safe) ---
+			foreach (var a in members)
+			{
+				foreach (var b in members)
+				{
+					if (a.user_id == b.user_id)
+						continue;
+
+					if (b.team == a.team && a.team != -1)
+						continue;
+
+					ref EloData A = ref CollectionsMarshal.GetValueRefOrAddDefault(
+						dictElo, a.user_id, out _);
+
+					ref EloData B = ref CollectionsMarshal.GetValueRefOrAddDefault(
+						dictElo, b.user_id, out _);
+
+					Elo.ApplyResult(
+						ref A,
+						ref B,
+						a.won ? MatchResult.PlayerAWins : MatchResult.PlayerBWins);
+				}
+			}
+
+			// --- Increment matches (still ref-safe) ---
+			foreach (var m in members)
+			{
+				ref EloData data = ref CollectionsMarshal.GetValueRefOrAddDefault(
+					dictElo, m.user_id, out _);
+				data.NumMatches++;
+			}
+
+			// --- Persist (copy out of ref before EF) ---
+			foreach (var pair in dictElo)
+			{
+				long userId = pair.Key;
+				EloData data = pair.Value;   // <-- COPY OUT OF REF HERE
+
+				// Update live user if online
+				var shared = GenOnlineService.WebSocketManager.GetSharedDataForUser(userId);
+				if (shared != null)
+				{
+					shared.GameStats.EloRating = data.Rating;
+					shared.GameStats.EloMatches = data.NumMatches;
+				}
+
+				// EF Core persistence (no ref locals allowed)
+				await Database.Users.SaveELOData(db, userId, data);
+			}
+		}
+
+
+		private static async Task UpdatePeriodEloAndLeaderboardsAsync(
+	AppDbContext db,
+	List<MatchdataMemberModel> members,
+	int dayOfYear,
+	int monthOfYear,
+	int year)
+		{
+			var userIds = members.Select(m => (long)m.user_id).ToList();
+			var bulk = await Database.Leaderboards.GetBulkLeaderboardData(
+				db, userIds, dayOfYear, monthOfYear, year);
+
+			var daily = new Dictionary<long, EloData>();
+			var monthly = new Dictionary<long, EloData>();
+			var yearly = new Dictionary<long, EloData>();
+
+			// Initialize from DB
+			foreach (var m in members)
+			{
+				var lb = bulk[m.user_id];
+				daily[m.user_id] = new EloData(lb.daily, lb.daily_matches);
+				monthly[m.user_id] = new EloData(lb.monthly, lb.monthly_matches);
+				yearly[m.user_id] = new EloData(lb.yearly, lb.yearly_matches);
+			}
+
+			// --- Pairwise ELO (ref-safe) ---
+			foreach (var a in members)
+			{
+				foreach (var b in members)
+				{
+					if (a.user_id == b.user_id)
+						continue;
+
+					if (b.team == a.team && a.team != -1)
+						continue;
+
+					// Daily
+					{
+						ref EloData A = ref CollectionsMarshal.GetValueRefOrAddDefault(daily, a.user_id, out _);
+						ref EloData B = ref CollectionsMarshal.GetValueRefOrAddDefault(daily, b.user_id, out _);
+						Elo.ApplyResult(ref A, ref B, a.won ? MatchResult.PlayerAWins : MatchResult.PlayerBWins);
+					}
+
+					// Monthly
+					{
+						ref EloData A = ref CollectionsMarshal.GetValueRefOrAddDefault(monthly, a.user_id, out _);
+						ref EloData B = ref CollectionsMarshal.GetValueRefOrAddDefault(monthly, b.user_id, out _);
+						Elo.ApplyResult(ref A, ref B, a.won ? MatchResult.PlayerAWins : MatchResult.PlayerBWins);
+					}
+
+					// Yearly
+					{
+						ref EloData A = ref CollectionsMarshal.GetValueRefOrAddDefault(yearly, a.user_id, out _);
+						ref EloData B = ref CollectionsMarshal.GetValueRefOrAddDefault(yearly, b.user_id, out _);
+						Elo.ApplyResult(ref A, ref B, a.won ? MatchResult.PlayerAWins : MatchResult.PlayerBWins);
+					}
+				}
+			}
+
+			// --- Persist (copy out of ref before EF) ---
+			foreach (var m in members)
+			{
+				long userId = m.user_id;
+
+				EloData d = daily[userId];   // <-- COPY OUT OF REF
+				EloData mo = monthly[userId];
+				EloData y = yearly[userId];
+
+				int wins = m.won ? 1 : 0;
+				int losses = m.won ? 0 : 1;
+
+				// Daily
+				await db.LeaderboardDaily
+					.Where(x => x.UserId == userId &&
+								x.DayOfYear == dayOfYear &&
+								x.Year == year)
+					.ExecuteUpdateAsync(s => s
+						.SetProperty(x => x.Points, d.Rating)
+						.SetProperty(x => x.Wins, x => x.Wins + wins)
+						.SetProperty(x => x.Losses, x => x.Losses + losses));
+
+				// Monthly
+				await db.LeaderboardMonthly
+					.Where(x => x.UserId == userId &&
+								x.MonthOfYear == monthOfYear &&
+								x.Year == year)
+					.ExecuteUpdateAsync(s => s
+						.SetProperty(x => x.Points, mo.Rating)
+						.SetProperty(x => x.Wins, x => x.Wins + wins)
+						.SetProperty(x => x.Losses, x => x.Losses + losses));
+
+				// Yearly
+				await db.LeaderboardYearly
+					.Where(x => x.UserId == userId &&
+								x.Year == year)
+					.ExecuteUpdateAsync(s => s
+						.SetProperty(x => x.Points, y.Rating)
+						.SetProperty(x => x.Wins, x => x.Wins + wins)
+						.SetProperty(x => x.Losses, x => x.Losses + losses));
+			}
+		}
+
+
+
 
 
 	}
