@@ -1420,16 +1420,16 @@ namespace GenOnlineService
 				// unsubscribe from self-destruct event
 				lobby.OnLobbyNeedsDestroyed -= HandleLobbyNeedsDestroyed;
 
+				using var scope = _services.CreateScope();
+				var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+				await using var db = await factory.CreateDbContextAsync();
+
 				// make sure we have a winner
-				await Database.Functions.Leaderboards.DetermineLobbyWinnerIfNotPresent(GlobalDatabaseInstance.g_Database, lobby);
+				await Database.MatchHistory.DetermineLobbyWinnerIfNotPresent(db, lobby);
 
 				// if its a quickmatch, update our leaderboards
 				if (lobby.LobbyType == ELobbyType.QuickMatch)
 				{
-					using var scope = _services.CreateScope();
-					var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-					await using var db = await factory.CreateDbContextAsync();
-
 					await Database.Functions.Leaderboards.UpdateLeaderboardAndElo(db, GlobalDatabaseInstance.g_Database, lobby);
                 }
 			}

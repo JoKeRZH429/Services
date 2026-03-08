@@ -195,6 +195,26 @@ namespace Database
 			m => m.MemberSlot7
 		};
 
+		private static readonly Func<AppDbContext, long, Task<string?[]>> _getAllMemberSlots =
+	EF.CompileAsyncQuery(
+		(AppDbContext db, long matchId) =>
+			db.MatchHistory
+			  .Where(m => m.MatchId == matchId)
+			  .Select(m => new string?[]
+			  {
+				  m.MemberSlot0,
+				  m.MemberSlot1,
+				  m.MemberSlot2,
+				  m.MemberSlot3,
+				  m.MemberSlot4,
+				  m.MemberSlot5,
+				  m.MemberSlot6,
+				  m.MemberSlot7
+			  })
+			  .FirstOrDefault()
+	);
+
+
 		private static Expression<Func<SetPropertyCalls<MatchHistoryEntry>, SetPropertyCalls<MatchHistoryEntry>>>
 	BuildSetter(int slotIndex, string? json)
 		{
@@ -229,6 +249,29 @@ namespace Database
 	(s, v) => s.SetProperty(m => m.MemberSlot6, v),
 	(s, v) => s.SetProperty(m => m.MemberSlot7, v)
 };
+
+
+		private static Expression<Func<SetPropertyCalls<MatchHistoryEntry>, SetPropertyCalls<MatchHistoryEntry>>>
+	BuildWinnerSetter(int slotIndex, string updatedJson)
+		{
+			var param = Expression.Parameter(typeof(SetPropertyCalls<MatchHistoryEntry>), "s");
+
+			var call = Expression.Call(
+				param,
+				nameof(SetPropertyCalls<MatchHistoryEntry>.SetProperty),
+				typeArguments: null,
+				arguments: new Expression[]
+				{
+			_slotSelectors[slotIndex],
+			Expression.Constant(updatedJson, typeof(string))
+				}
+			);
+
+			return Expression.Lambda<Func<SetPropertyCalls<MatchHistoryEntry>, SetPropertyCalls<MatchHistoryEntry>>>(
+				call,
+				param
+			);
+		}
 
 
 		private static readonly Func<AppDbContext, long, int, Task<string?>> _getMemberSlot =
@@ -454,6 +497,133 @@ namespace Database
 
 			return id;
 		}
+
+		public static async Task DetermineLobbyWinnerIfNotPresent(
+	AppDbContext db,
+	GenOnlineService.Lobby lobby)
+		{
+			if (lobby == null || lobby.MatchID == 0)
+				return;
+
+			// 1. Load all JSON slots
+			string?[]? slots = await _getAllMemberSlots(db, (long)lobby.MatchID);
+			if (slots == null)
+				return;
+
+			// 2. Deserialize only non-null slots
+			Dictionary<int, MatchdataMemberModel> members = new();
+
+			for (int i = 0; i < 8; i++)
+			{
+				if (!string.IsNullOrEmpty(slots[i]))
+				{
+					MatchdataMemberModel? model = JsonSerializer.Deserialize<MatchdataMemberModel>(slots[i]!);
+					if (model != null)
+						members[i] = model.Value;
+				}
+			}
+
+			// 3. Check if a winner already exists
+			bool hasWinner = false;
+			int winnerTeam = -1;
+
+			foreach (var kv in members)
+			{
+				if (kv.Value.won)
+				{
+					hasWinner = true;
+					winnerTeam = kv.Value.team;
+					break;
+				}
+			}
+
+			// 4. If winner exists, propagate to teammates
+			if (hasWinner && winnerTeam != -1)
+			{
+				foreach (var kv in members)
+				{
+					if (kv.Value.team == winnerTeam)
+					{
+						await UpdateMatchHistoryMakeWinner(db, lobby.MatchID, kv.Key);
+					}
+				}
+
+				return;
+			}
+
+			// 5. No winner — pick last player to leave
+			DateTime latestLeave = DateTime.UnixEpoch;
+			MatchdataMemberModel? lastPlayerNullable = null;
+			int lastSlot = -1;
+
+			foreach (var kv in members)
+			{
+				var model = kv.Value;
+
+				if (lobby.TimeMemberLeft.TryGetValue(model.user_id, out DateTime leftAt))
+				{
+					if (leftAt >= latestLeave)
+					{
+						latestLeave = leftAt;
+						lastPlayerNullable = model;
+						lastSlot = kv.Key;
+					}
+				}
+			}
+
+			if (lastPlayerNullable == null)
+				return;
+
+			MatchdataMemberModel lastPlayer = lastPlayerNullable.Value;
+			int winningTeam = lastPlayer.team;
+
+			// 6. Mark last player + teammates as winners
+			foreach (var kv in members)
+			{
+				var model = kv.Value;
+
+				if (model.user_id == lastPlayer.user_id ||
+					(winningTeam != -1 && model.team == winningTeam))
+				{
+					await UpdateMatchHistoryMakeWinner(db, lobby.MatchID, kv.Key);
+				}
+			}
+		}
+
+		public static async Task UpdateMatchHistoryMakeWinner(
+	AppDbContext db,
+	ulong matchId,
+	int slotIndex)
+		{
+			if (matchId == 0 || slotIndex < 0 || slotIndex > 7)
+				return;
+
+			// 1. Load the JSON for this slot
+			string? json = await _getMemberSlot(db, (long)matchId, slotIndex);
+			if (string.IsNullOrEmpty(json))
+				return;
+
+			// 2. Deserialize
+			MatchdataMemberModel? modelNullable = JsonSerializer.Deserialize<MatchdataMemberModel>(json);
+			if (modelNullable == null)
+				return;
+
+			// 3. Update winner flag
+			MatchdataMemberModel model = modelNullable.Value;
+			model.won = true;
+
+			// 4. Serialize back
+			string updatedJson = JsonSerializer.Serialize(model);
+
+			// 5. Build setter expression
+			var setter = BuildWinnerSetter(slotIndex, updatedJson);
+
+			// 6. Execute update (single SQL UPDATE)
+			await db.MatchHistory
+				.Where(m => m.MatchId == (long)matchId)
+				.ExecuteUpdateAsync(setter);
+		}
+
 
 
 		public static async Task<MatchHistoryCollection> GetMatchesInRange(
