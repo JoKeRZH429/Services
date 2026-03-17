@@ -308,15 +308,6 @@ namespace Database
 					  .Max(m => (long?)m.MatchId)
 			);
 
-		private static readonly Func<AppDbContext, MatchHistoryEntry, Task> _insertMatch =
-			EF.CompileAsyncQuery(
-				(AppDbContext db, MatchHistoryEntry m) =>
-				db.MatchHistory.Add(m)
-		);
-
-
-
-
 		private static readonly Func<AppDbContext, long, long, IAsyncEnumerable<MatchHistory_Entry>> _getMatchesInRange =
 	EF.CompileAsyncQuery(
 		(AppDbContext db, long startId, long endId) =>
@@ -502,8 +493,8 @@ namespace Database
 				MemberSlot7 = jsonSlots[7]
 			};
 
-			// Precompiled Add()
-			await _insertMatch(db, entity);
+			// Add entity to DbSet
+			db.MatchHistory.Add(entity);
 
 			// Save
 			await db.SaveChangesAsync();
