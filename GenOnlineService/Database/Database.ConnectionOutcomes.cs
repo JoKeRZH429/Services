@@ -72,54 +72,61 @@ namespace Database
 				outcome != EConnectionState.CONNECTION_FAILED)
 				return;
 
-			int dayOfYear = DateTime.UtcNow.DayOfYear;
-
-			// Load existing row (if any)
-			var existing = await db.ConnectionOutcomes
-				.Where(c => c.DayOfYear == dayOfYear)
-				.FirstOrDefaultAsync();
-
-			// If no row exists → create one
-			if (existing == null)
+			try
 			{
-				existing = new ConnectionOutcome
+				int dayOfYear = DateTime.UtcNow.DayOfYear;
+
+				// Load existing row (if any)
+				var existing = await db.ConnectionOutcomes
+					.Where(c => c.DayOfYear == dayOfYear)
+					.FirstOrDefaultAsync();
+
+				// If no row exists → create one
+				if (existing == null)
 				{
-					DayOfYear = dayOfYear,
-					Ipv4Count = 0,
-					Ipv6Count = 0,
-					SuccessCount = 0,
-					FailedCount = 0
-				};
+					existing = new ConnectionOutcome
+					{
+						DayOfYear = dayOfYear,
+						Ipv4Count = 0,
+						Ipv6Count = 0,
+						SuccessCount = 0,
+						FailedCount = 0
+					};
 
-				db.ConnectionOutcomes.Add(existing);
+					db.ConnectionOutcomes.Add(existing);
+				}
+
+				// Increment protocol counters
+				if (protocol == EIPVersion.IPV4)
+					existing.Ipv4Count = (existing.Ipv4Count ?? 0) + 1;
+				else if (protocol == EIPVersion.IPV6)
+					existing.Ipv6Count = (existing.Ipv6Count ?? 0) + 1;
+
+				// Increment outcome counters
+				if (outcome == EConnectionState.CONNECTED_DIRECT ||
+					outcome == EConnectionState.CONNECTED_RELAY)
+				{
+					existing.SuccessCount = (existing.SuccessCount ?? 0) + 1;
+				}
+				else if (outcome == EConnectionState.CONNECTION_FAILED)
+				{
+					existing.FailedCount = (existing.FailedCount ?? 0) + 1;
+				}
+
+				// Persist insert/update
+				await db.SaveChangesAsync();
+
+				// Cleanup: delete rows older than 30 days
+				int cutoff = dayOfYear - 30;
+
+				await db.ConnectionOutcomes
+					.Where(c => c.DayOfYear < cutoff)
+					.ExecuteDeleteAsync();
 			}
-
-			// Increment protocol counters
-			if (protocol == EIPVersion.IPV4)
-				existing.Ipv4Count = (existing.Ipv4Count ?? 0) + 1;
-			else if (protocol == EIPVersion.IPV6)
-				existing.Ipv6Count = (existing.Ipv6Count ?? 0) + 1;
-
-			// Increment outcome counters
-			if (outcome == EConnectionState.CONNECTED_DIRECT ||
-				outcome == EConnectionState.CONNECTED_RELAY)
+			catch (Exception ex)
 			{
-				existing.SuccessCount = (existing.SuccessCount ?? 0) + 1;
+				Console.WriteLine($"[ERROR] StoreConnectionOutcome failed: {ex.Message}");
 			}
-			else if (outcome == EConnectionState.CONNECTION_FAILED)
-			{
-				existing.FailedCount = (existing.FailedCount ?? 0) + 1;
-			}
-
-			// Persist insert/update
-			await db.SaveChangesAsync();
-
-			// Cleanup: delete rows older than 30 days
-			int cutoff = dayOfYear - 30;
-
-			await db.ConnectionOutcomes
-				.Where(c => c.DayOfYear < cutoff)
-				.ExecuteDeleteAsync();
 		}
 
 	}

@@ -76,39 +76,46 @@ namespace Database
 			int player_peak,
 			int lobbies_peak)
 		{
-			// UPSERT logic using precompiled query
-			var existing = await FindStatTracked(db, day_of_year, hour_of_day);
-
-			if (existing == null)
+			try
 			{
-				// Insert new
-				var stat = new ServiceStat
+				// UPSERT logic using precompiled query
+				var existing = await FindStatTracked(db, day_of_year, hour_of_day);
+
+				if (existing == null)
 				{
-					DayOfYear = day_of_year,
-					HourOfDay = hour_of_day,
-					PlayerPeak = player_peak,
-					LobbiesPeak = lobbies_peak
-				};
+					// Insert new
+					var stat = new ServiceStat
+					{
+						DayOfYear = day_of_year,
+						HourOfDay = hour_of_day,
+						PlayerPeak = player_peak,
+						LobbiesPeak = lobbies_peak
+					};
 
-				db.ServiceStats.Add(stat);
+					db.ServiceStats.Add(stat);
+				}
+				else
+				{
+					// Update using GREATEST() semantics
+					existing.PlayerPeak = Math.Max(existing.PlayerPeak, player_peak);
+					existing.LobbiesPeak = Math.Max(existing.LobbiesPeak, lobbies_peak);
+				}
+
+				// NOTE: duplicate, unnecessary
+				//await db.SaveChangesAsync();
+
+				// DELETE old rows (precompiled)
+				int cutoff = day_of_year - 30;
+
+				await foreach (var old in FindOldStats(db, cutoff))
+					db.ServiceStats.Remove(old);
+
+				await db.SaveChangesAsync();
 			}
-			else
+			catch (Exception ex)
 			{
-				// Update using GREATEST() semantics
-				existing.PlayerPeak = Math.Max(existing.PlayerPeak, player_peak);
-				existing.LobbiesPeak = Math.Max(existing.LobbiesPeak, lobbies_peak);
+				Console.WriteLine($"[ERROR] CommitStats failed: {ex.Message}");
 			}
-
-			// NOTE: duplicate, unnecessary
-			//await db.SaveChangesAsync();
-
-			// DELETE old rows (precompiled)
-			int cutoff = day_of_year - 30;
-
-			await foreach (var old in FindOldStats(db, cutoff))
-				db.ServiceStats.Remove(old);
-
-			await db.SaveChangesAsync();
 		}
 
 	}

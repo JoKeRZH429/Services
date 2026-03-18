@@ -82,31 +82,47 @@ namespace Database
 	AppDbContext db,
 	long userId)
 		{
-			// Load ELO (already EF-based)
-			EloData elo = await Database.Users.GetELOData(db, userId);
+			EloData elo;
+			try
+			{
+				// Load ELO (already EF-based)
+				elo = await Database.Users.GetELOData(db, userId);
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"[ERROR] GetPlayerStats failed: {ex.Message}");
+				return new PlayerStats(userId, EloConfig.BaseRating, 0);
+			}
 
 			PlayerStats ps = new PlayerStats(userId, elo.Rating, elo.NumMatches);
 
-			// Load stats JSON via EF
-			string? json = await _getUserStatsJson(db, userId);
-
-			if (string.IsNullOrEmpty(json))
-				return ps; // no stats row → return ELO-only stats
-
-			// Deserialize dictionary
-			Dictionary<int, int>? dict =
-				JsonSerializer.Deserialize<Dictionary<int, int>>(json);
-
-			if (dict == null)
-				return ps;
-
-			// Feed into PlayerStats
-			foreach (var kv in dict)
+			try
 			{
-				EStatIndex statId = (EStatIndex)kv.Key;
-				int statValue = kv.Value;
+				// Load stats JSON via EF
+				string? json = await _getUserStatsJson(db, userId);
 
-				ps.ProcessFromDB(statId, statValue);
+				if (string.IsNullOrEmpty(json))
+					return ps; // no stats row → return ELO-only stats
+
+				// Deserialize dictionary
+				Dictionary<int, int>? dict =
+					JsonSerializer.Deserialize<Dictionary<int, int>>(json);
+
+				if (dict == null)
+					return ps;
+
+				// Feed into PlayerStats
+				foreach (var kv in dict)
+				{
+					EStatIndex statId = (EStatIndex)kv.Key;
+					int statValue = kv.Value;
+
+					ps.ProcessFromDB(statId, statValue);
+				}
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"[ERROR] GetPlayerStats failed: {ex.Message}");
 			}
 
 			return ps;
@@ -119,50 +135,57 @@ namespace Database
 	int statId,
 	int statVal)
 		{
-			// 1. Load existing JSON (if any)
-			string? json = await _getUserStats(db, userId);
-
-			Dictionary<string, int> stats;
-
-			if (string.IsNullOrEmpty(json))
+			try
 			{
-				// No row exists → create new dictionary
-				stats = new Dictionary<string, int>();
-			}
-			else
-			{
-				// Deserialize existing stats
-				stats = JsonSerializer.Deserialize<Dictionary<string, int>>(json)
-						?? new Dictionary<string, int>();
-			}
+				// 1. Load existing JSON (if any)
+				string? json = await _getUserStats(db, userId);
 
-			// 2. Update the stat
-			stats[statId.ToString()] = statVal;
+				Dictionary<string, int> stats;
 
-			// 3. Serialize back
-			string updatedJson = JsonSerializer.Serialize(stats);
-
-			// 4. Check if row exists
-			bool exists = json != null;
-
-			if (!exists)
-			{
-				// INSERT
-				db.UserStats.Add(new UserStatsEntry
+				if (string.IsNullOrEmpty(json))
 				{
-					UserId = userId,
-					Stats = updatedJson
-				});
+					// No row exists → create new dictionary
+					stats = new Dictionary<string, int>();
+				}
+				else
+				{
+					// Deserialize existing stats
+					stats = JsonSerializer.Deserialize<Dictionary<string, int>>(json)
+							?? new Dictionary<string, int>();
+				}
 
-				await db.SaveChangesAsync();
-				return;
+				// 2. Update the stat
+				stats[statId.ToString()] = statVal;
+
+				// 3. Serialize back
+				string updatedJson = JsonSerializer.Serialize(stats);
+
+				// 4. Check if row exists
+				bool exists = json != null;
+
+				if (!exists)
+				{
+					// INSERT
+					db.UserStats.Add(new UserStatsEntry
+					{
+						UserId = userId,
+						Stats = updatedJson
+					});
+
+					await db.SaveChangesAsync();
+					return;
+				}
+
+				// 5. UPDATE using ExecuteUpdateAsync (fast, no tracking)
+				await db.UserStats
+					.Where(s => s.UserId == userId)
+					.ExecuteUpdateAsync(s => s
+						.SetProperty(x => x.Stats, updatedJson));
 			}
-
-			// 5. UPDATE using ExecuteUpdateAsync (fast, no tracking)
-			await db.UserStats
-				.Where(s => s.UserId == userId)
-				.ExecuteUpdateAsync(s => s
-					.SetProperty(x => x.Stats, updatedJson));
+			catch (Exception ex)
+			{
+				Console.WriteLine($"[ERROR] UpdatePlayerStat failed: {ex.Message}");
+			}
 		}
 
 	}

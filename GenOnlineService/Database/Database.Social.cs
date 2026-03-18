@@ -122,9 +122,16 @@ namespace Database
 		{
 			HashSet<long> result = new();
 
-			await foreach (var f in _getFriends(db, userId))
+			try
 			{
-				result.Add(f.UserId1 == userId ? f.UserId2 : f.UserId1);
+				await foreach (var f in _getFriends(db, userId))
+				{
+					result.Add(f.UserId1 == userId ? f.UserId2 : f.UserId1);
+				}
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"[ERROR] GetFriends failed: {ex.Message}");
 			}
 
 			return result;
@@ -135,8 +142,15 @@ namespace Database
 		{
 			HashSet<long> result = new();
 
-			await foreach (var id in _getBlocked(db, sourceUserId))
-				result.Add(id);
+			try
+			{
+				await foreach (var id in _getBlocked(db, sourceUserId))
+					result.Add(id);
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"[ERROR] GetBlocked failed: {ex.Message}");
+			}
 
 			return result;
 		}
@@ -146,8 +160,15 @@ namespace Database
 		{
 			HashSet<long> result = new();
 
-			await foreach (var id in _getPendingRequests(db, targetUserId))
-				result.Add(id);
+			try
+			{
+				await foreach (var id in _getPendingRequests(db, targetUserId))
+					result.Add(id);
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"[ERROR] GetPendingFriendsRequests failed: {ex.Message}");
+			}
 
 			return result;
 		}
@@ -155,60 +176,102 @@ namespace Database
 
 		public static async Task RemovePendingFriendRequest(AppDbContext db, long sourceUserId, long targetUserId)
 		{
-			await db.FriendRequests
-				.Where(r =>
-					(r.SourceUserId == sourceUserId && r.TargetUserId == targetUserId) ||
-					(r.SourceUserId == targetUserId && r.TargetUserId == sourceUserId))
-				.ExecuteDeleteAsync();
+			try
+			{
+				await db.FriendRequests
+					.Where(r =>
+						(r.SourceUserId == sourceUserId && r.TargetUserId == targetUserId) ||
+						(r.SourceUserId == targetUserId && r.TargetUserId == sourceUserId))
+					.ExecuteDeleteAsync();
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"[ERROR] RemovePendingFriendRequest failed: {ex.Message}");
+			}
 		}
 
 		public static async Task CreateFriendship(AppDbContext db, long userId1, long userId2)
 		{
-			db.Friends.Add(new FriendEntry
+			try
 			{
-				UserId1 = userId1,
-				UserId2 = userId2
-			});
+				db.Friends.Add(new FriendEntry
+				{
+					UserId1 = userId1,
+					UserId2 = userId2
+				});
 
-			await db.SaveChangesAsync();
+				await db.SaveChangesAsync();
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"[ERROR] CreateFriendship failed: {ex.Message}");
+			}
 		}
 
 		public static async Task RemoveFriendship(AppDbContext db, long userId1, long userId2)
 		{
-			await db.Friends
-				.Where(f =>
-					(f.UserId1 == userId1 && f.UserId2 == userId2) ||
-					(f.UserId1 == userId2 && f.UserId2 == userId1))
-				.ExecuteDeleteAsync();
+			try
+			{
+				await db.Friends
+					.Where(f =>
+						(f.UserId1 == userId1 && f.UserId2 == userId2) ||
+						(f.UserId1 == userId2 && f.UserId2 == userId1))
+					.ExecuteDeleteAsync();
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"[ERROR] RemoveFriendship failed: {ex.Message}");
+			}
 		}
 
 		public static async Task AddBlock(AppDbContext db, long sourceUserId, long targetUserId)
 		{
-			db.BlockedUsers.Add(new BlockedUserEntry
+			try
 			{
-				SourceUserId = sourceUserId,
-				TargetUserId = targetUserId
-			});
+				db.BlockedUsers.Add(new BlockedUserEntry
+				{
+					SourceUserId = sourceUserId,
+					TargetUserId = targetUserId
+				});
 
-			await db.SaveChangesAsync();
+				await db.SaveChangesAsync();
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"[ERROR] AddBlock failed: {ex.Message}");
+			}
 		}
 
 		public static async Task RemoveBlock(AppDbContext db, long sourceUserId, long targetUserId)
 		{
-			await db.BlockedUsers
-				.Where(b => b.SourceUserId == sourceUserId && b.TargetUserId == targetUserId)
-				.ExecuteDeleteAsync();
+			try
+			{
+				await db.BlockedUsers
+					.Where(b => b.SourceUserId == sourceUserId && b.TargetUserId == targetUserId)
+					.ExecuteDeleteAsync();
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"[ERROR] RemoveBlock failed: {ex.Message}");
+			}
 		}
 
 		public static async Task AddPendingFriendRequest(AppDbContext db, long sourceUserId, long targetUserId)
 		{
-			db.FriendRequests.Add(new FriendRequestEntry
+			try
 			{
-				SourceUserId = sourceUserId,
-				TargetUserId = targetUserId
-			});
+				db.FriendRequests.Add(new FriendRequestEntry
+				{
+					SourceUserId = sourceUserId,
+					TargetUserId = targetUserId
+				});
 
-			await db.SaveChangesAsync();
+				await db.SaveChangesAsync();
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"[ERROR] AddPendingFriendRequest failed: {ex.Message}");
+			}
 		}
 
 

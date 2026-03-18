@@ -1,4 +1,4 @@
-/*
+﻿/*
 **    GeneralsOnline Game Services - Backend Services for Command & Conquer Generals Online: Zero Hour
 **    Copyright (C) 2025  GeneralsOnline Development Team
 **
@@ -290,14 +290,16 @@ namespace Database
 		}
 
 
-		private static readonly Func<AppDbContext, long, int, Task<string?>> _getMemberSlot =
-	EF.CompileAsyncQuery(
-		(AppDbContext db, long matchId, int slotIndex) =>
-			db.MatchHistory
-			  .Where(m => m.MatchId == matchId)
-			  .Select(_slotSelectors[slotIndex])
-			  .FirstOrDefault()
-	);
+		private static async Task<string?> _getMemberSlot(AppDbContext db, long matchId, int slotIndex)
+		{
+			if (slotIndex < 0 || slotIndex > 7)
+				return null;
+
+			return await db.MatchHistory
+				.Where(m => m.MatchId == matchId)
+				.Select(_slotSelectors[slotIndex])
+				.FirstOrDefaultAsync();
+		}
 
 
 
@@ -351,32 +353,39 @@ namespace Database
 			if (slotIndex < 0 || slotIndex > 7)
 				return;
 
-			// 1. Load JSON for this slot
-			string? json = await _getMemberSlot(db, (long)matchId, slotIndex);
-			if (string.IsNullOrEmpty(json))
-				return;
+			try
+			{
+				// 1. Load JSON for this slot
+				string? json = await _getMemberSlot(db, (long)matchId, slotIndex);
+				if (string.IsNullOrEmpty(json))
+					return;
 
-			// 2. Deserialize
-			MatchdataMemberModel? modelNullable = JsonSerializer.Deserialize<MatchdataMemberModel?>(json);
-			if (modelNullable == null)
-				return;
+				// 2. Deserialize
+				MatchdataMemberModel? modelNullable = JsonSerializer.Deserialize<MatchdataMemberModel?>(json);
+				if (modelNullable == null)
+					return;
 
-			// 3. Update fields
-			MatchdataMemberModel model = modelNullable.Value;
-			model.buildings_built = buildingsBuilt;
-			model.buildings_killed = buildingsKilled;
-			model.buildings_lost = buildingsLost;
-			model.units_built = unitsBuilt;
-			model.units_killed = unitsKilled;
-			model.units_lost = unitsLost;
-			model.total_money = totalMoney;
-			model.won = won;
+				// 3. Update fields
+				MatchdataMemberModel model = modelNullable.Value;
+				model.buildings_built = buildingsBuilt;
+				model.buildings_killed = buildingsKilled;
+				model.buildings_lost = buildingsLost;
+				model.units_built = unitsBuilt;
+				model.units_killed = unitsKilled;
+				model.units_lost = unitsLost;
+				model.total_money = totalMoney;
+				model.won = won;
 
-			// 4. Serialize back
-			string updatedJson = JsonSerializer.Serialize(model);
+				// 4. Serialize back
+				string updatedJson = JsonSerializer.Serialize(model);
 
-			// 5. Update DB (single SQL UPDATE)
-			await _updateMemberSlot(db, (long)matchId, slotIndex, updatedJson);
+				// 5. Update DB (single SQL UPDATE)
+				await _updateMemberSlot(db, (long)matchId, slotIndex, updatedJson);
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"[ERROR] CommitPlayerOutcome failed: {ex.Message}");
+			}
 		}
 
 		public static async Task _updateMemberSlot(
@@ -423,86 +432,94 @@ namespace Database
 			if (lobby == null)
 				return 0;
 
-			// Build member JSON array
-			string?[] jsonSlots = new string?[8];
-
-			Dictionary<int, int> playersPerTeam = new();
-			int playersSeen = 0;
-
-			foreach (var member in lobby.Members)
+			try
 			{
-				if (member.SlotState == EPlayerType.SLOT_OPEN ||
-					member.SlotState == EPlayerType.SLOT_CLOSED)
-					continue;
+				// Build member JSON array
+				string?[] jsonSlots = new string?[8];
 
-				var model = new MatchdataMemberModel
+				Dictionary<int, int> playersPerTeam = new();
+				int playersSeen = 0;
+
+				foreach (var member in lobby.Members)
 				{
-					user_id = member.UserID,
-					display_name = member.DisplayName,
-					slot_state = member.SlotState,
-					side = member.Side,
-					color = member.Color,
-					team = member.Team,
-					startpos = member.StartingPosition,
-					buildings_built = 0,
-					buildings_killed = 0,
-					buildings_lost = 0,
-					units_built = 0,
-					units_killed = 0,
-					units_lost = 0,
-					total_money = 0,
-					won = false
+					if (member.SlotState == EPlayerType.SLOT_OPEN ||
+						member.SlotState == EPlayerType.SLOT_CLOSED)
+						continue;
+
+					var model = new MatchdataMemberModel
+					{
+						user_id = member.UserID,
+						display_name = member.DisplayName,
+						slot_state = member.SlotState,
+						side = member.Side,
+						color = member.Color,
+						team = member.Team,
+						startpos = member.StartingPosition,
+						buildings_built = 0,
+						buildings_killed = 0,
+						buildings_lost = 0,
+						units_built = 0,
+						units_killed = 0,
+						units_lost = 0,
+						total_money = 0,
+						won = false
+					};
+
+					jsonSlots[member.SlotIndex] = JsonSerializer.Serialize(model);
+
+					playersSeen++;
+
+					if (playersPerTeam.ContainsKey(model.team))
+						playersPerTeam[model.team]++;
+					else
+						playersPerTeam[model.team] = 1;
+				}
+
+				// Determine roster type
+				string rosterType = ComputeRosterType(playersSeen, playersPerTeam);
+
+				// Build EF entity
+				var entity = new MatchHistoryEntry
+				{
+					Owner = lobby.Owner,
+					Name = lobby.Name,
+					MapName = lobby.MapName,
+					MapPath = lobby.MapPath,
+					MapOfficial = lobby.IsMapOfficial,
+					MatchRosterType = rosterType,
+					VanillaTeams = lobby.IsVanillaTeamsOnly,
+					StartingCash = lobby.StartingCash,
+					LimitSuperweapons = lobby.IsLimitSuperweapons,
+					TrackStats = lobby.IsTrackingStats,
+					AllowObservers = lobby.AllowObservers,
+					MaxCamHeight = lobby.MaximumCameraHeight,
+
+					MemberSlot0 = jsonSlots[0],
+					MemberSlot1 = jsonSlots[1],
+					MemberSlot2 = jsonSlots[2],
+					MemberSlot3 = jsonSlots[3],
+					MemberSlot4 = jsonSlots[4],
+					MemberSlot5 = jsonSlots[5],
+					MemberSlot6 = jsonSlots[6],
+					MemberSlot7 = jsonSlots[7]
 				};
 
-				jsonSlots[member.SlotIndex] = JsonSerializer.Serialize(model);
+				// Add entity to DbSet
+				db.MatchHistory.Add(entity);
 
-				playersSeen++;
+				// Save
+				await db.SaveChangesAsync();
 
-				if (playersPerTeam.ContainsKey(model.team))
-					playersPerTeam[model.team]++;
-				else
-					playersPerTeam[model.team] = 1;
+				ulong id = (ulong)entity.MatchId;
+				lobby.SetMatchID(id);
+
+				return id;
 			}
-
-			// Determine roster type
-			string rosterType = ComputeRosterType(playersSeen, playersPerTeam);
-
-			// Build EF entity
-			var entity = new MatchHistoryEntry
+			catch (Exception ex)
 			{
-				Owner = lobby.Owner,
-				Name = lobby.Name,
-				MapName = lobby.MapName,
-				MapPath = lobby.MapPath,
-				MapOfficial = lobby.IsMapOfficial,
-				MatchRosterType = rosterType,
-				VanillaTeams = lobby.IsVanillaTeamsOnly,
-				StartingCash = lobby.StartingCash,
-				LimitSuperweapons = lobby.IsLimitSuperweapons,
-				TrackStats = lobby.IsTrackingStats,
-				AllowObservers = lobby.AllowObservers,
-				MaxCamHeight = lobby.MaximumCameraHeight,
-
-				MemberSlot0 = jsonSlots[0],
-				MemberSlot1 = jsonSlots[1],
-				MemberSlot2 = jsonSlots[2],
-				MemberSlot3 = jsonSlots[3],
-				MemberSlot4 = jsonSlots[4],
-				MemberSlot5 = jsonSlots[5],
-				MemberSlot6 = jsonSlots[6],
-				MemberSlot7 = jsonSlots[7]
-			};
-
-			// Add entity to DbSet
-			db.MatchHistory.Add(entity);
-
-			// Save
-			await db.SaveChangesAsync();
-
-			ulong id = (ulong)entity.MatchId;
-			lobby.SetMatchID(id);
-
-			return id;
+				Console.WriteLine($"[ERROR] CreatePlaceholderMatchHistory failed: {ex.Message}");
+				return 0;
+			}
 		}
 
 		public static async Task DetermineLobbyWinnerIfNotPresent(
@@ -512,88 +529,95 @@ namespace Database
 			if (lobby == null || lobby.MatchID == 0)
 				return;
 
-			// 1. Load all JSON slots
-			string?[]? slots = await _getAllMemberSlots(db, (long)lobby.MatchID);
-			if (slots == null)
-				return;
-
-			// 2. Deserialize only non-null slots
-			Dictionary<int, MatchdataMemberModel> members = new();
-
-			for (int i = 0; i < 8; i++)
+			try
 			{
-				if (!string.IsNullOrEmpty(slots[i]))
+				// 1. Load all JSON slots
+				string?[]? slots = await _getAllMemberSlots(db, (long)lobby.MatchID);
+				if (slots == null)
+					return;
+
+				// 2. Deserialize only non-null slots
+				Dictionary<int, MatchdataMemberModel> members = new();
+
+				for (int i = 0; i < 8; i++)
 				{
-					MatchdataMemberModel? model = JsonSerializer.Deserialize<MatchdataMemberModel>(slots[i]!);
-					if (model != null)
-						members[i] = model.Value;
+					if (!string.IsNullOrEmpty(slots[i]))
+					{
+						MatchdataMemberModel? model = JsonSerializer.Deserialize<MatchdataMemberModel>(slots[i]!);
+						if (model != null)
+							members[i] = model.Value;
+					}
 				}
-			}
 
-			// 3. Check if a winner already exists
-			bool hasWinner = false;
-			int winnerTeam = -1;
+				// 3. Check if a winner already exists
+				bool hasWinner = false;
+				int winnerTeam = -1;
 
-			foreach (var kv in members)
-			{
-				if (kv.Value.won)
-				{
-					hasWinner = true;
-					winnerTeam = kv.Value.team;
-					break;
-				}
-			}
-
-			// 4. If winner exists, propagate to teammates
-			if (hasWinner && winnerTeam != -1)
-			{
 				foreach (var kv in members)
 				{
-					if (kv.Value.team == winnerTeam)
+					if (kv.Value.won)
+					{
+						hasWinner = true;
+						winnerTeam = kv.Value.team;
+						break;
+					}
+				}
+
+				// 4. If winner exists, propagate to teammates
+				if (hasWinner && winnerTeam != -1)
+				{
+					foreach (var kv in members)
+					{
+						if (kv.Value.team == winnerTeam)
+						{
+							await UpdateMatchHistoryMakeWinner(db, lobby.MatchID, kv.Key);
+						}
+					}
+
+					return;
+				}
+
+				// 5. No winner — pick last player to leave
+				DateTime latestLeave = DateTime.UnixEpoch;
+				MatchdataMemberModel? lastPlayerNullable = null;
+				int lastSlot = -1;
+
+				foreach (var kv in members)
+				{
+					var model = kv.Value;
+
+					if (lobby.TimeMemberLeft.TryGetValue(model.user_id, out DateTime leftAt))
+					{
+						if (leftAt >= latestLeave)
+						{
+							latestLeave = leftAt;
+							lastPlayerNullable = model;
+							lastSlot = kv.Key;
+						}
+					}
+				}
+
+				if (lastPlayerNullable == null)
+					return;
+
+				MatchdataMemberModel lastPlayer = lastPlayerNullable.Value;
+				int winningTeam = lastPlayer.team;
+
+				// 6. Mark last player + teammates as winners
+				foreach (var kv in members)
+				{
+					var model = kv.Value;
+
+					if (model.user_id == lastPlayer.user_id ||
+						(winningTeam != -1 && model.team == winningTeam))
 					{
 						await UpdateMatchHistoryMakeWinner(db, lobby.MatchID, kv.Key);
 					}
 				}
-
-				return;
 			}
-
-			// 5. No winner � pick last player to leave
-			DateTime latestLeave = DateTime.UnixEpoch;
-			MatchdataMemberModel? lastPlayerNullable = null;
-			int lastSlot = -1;
-
-			foreach (var kv in members)
+			catch (Exception ex)
 			{
-				var model = kv.Value;
-
-				if (lobby.TimeMemberLeft.TryGetValue(model.user_id, out DateTime leftAt))
-				{
-					if (leftAt >= latestLeave)
-					{
-						latestLeave = leftAt;
-						lastPlayerNullable = model;
-						lastSlot = kv.Key;
-					}
-				}
-			}
-
-			if (lastPlayerNullable == null)
-				return;
-
-			MatchdataMemberModel lastPlayer = lastPlayerNullable.Value;
-			int winningTeam = lastPlayer.team;
-
-			// 6. Mark last player + teammates as winners
-			foreach (var kv in members)
-			{
-				var model = kv.Value;
-
-				if (model.user_id == lastPlayer.user_id ||
-					(winningTeam != -1 && model.team == winningTeam))
-				{
-					await UpdateMatchHistoryMakeWinner(db, lobby.MatchID, kv.Key);
-				}
+				Console.WriteLine($"[ERROR] DetermineLobbyWinnerIfNotPresent failed: {ex.Message}");
 			}
 		}
 
@@ -605,30 +629,37 @@ namespace Database
 			if (matchId == 0 || slotIndex < 0 || slotIndex > 7)
 				return;
 
-			// 1. Load the JSON for this slot
-			string? json = await _getMemberSlot(db, (long)matchId, slotIndex);
-			if (string.IsNullOrEmpty(json))
-				return;
+			try
+			{
+				// 1. Load the JSON for this slot
+				string? json = await _getMemberSlot(db, (long)matchId, slotIndex);
+				if (string.IsNullOrEmpty(json))
+					return;
 
-			// 2. Deserialize
-			MatchdataMemberModel? modelNullable = JsonSerializer.Deserialize<MatchdataMemberModel>(json);
-			if (modelNullable == null)
-				return;
+				// 2. Deserialize
+				MatchdataMemberModel? modelNullable = JsonSerializer.Deserialize<MatchdataMemberModel>(json);
+				if (modelNullable == null)
+					return;
 
-			// 3. Update winner flag
-			MatchdataMemberModel model = modelNullable.Value;
-			model.won = true;
+				// 3. Update winner flag
+				MatchdataMemberModel model = modelNullable.Value;
+				model.won = true;
 
-			// 4. Serialize back
-			string updatedJson = JsonSerializer.Serialize(model);
+				// 4. Serialize back
+				string updatedJson = JsonSerializer.Serialize(model);
 
-			// 5. Build setter expression
-			var setter = BuildWinnerSetter(slotIndex, updatedJson);
+				// 5. Build setter expression
+				var setter = BuildWinnerSetter(slotIndex, updatedJson);
 
-			// 6. Execute update (single SQL UPDATE)
-			await db.MatchHistory
-				.Where(m => m.MatchId == (long)matchId)
-				.ExecuteUpdateAsync(setter);
+				// 6. Execute update (single SQL UPDATE)
+				await db.MatchHistory
+					.Where(m => m.MatchId == (long)matchId)
+					.ExecuteUpdateAsync(setter);
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"[ERROR] UpdateMatchHistoryMakeWinner failed: {ex.Message}");
+			}
 		}
 
 
@@ -638,35 +669,42 @@ namespace Database
 		{
 			MatchHistoryCollection collection = new();
 
-			await foreach (var entry in _getMatchesInRange(db, startID, endID))
+			try
 			{
-				// Load JSON members (optional optimization below)
-				var entity = await db.MatchHistory
-					.Where(m => m.MatchId == entry.match_id)
-					.Select(m => new
-					{
-						m.MemberSlot0,
-						m.MemberSlot1,
-						m.MemberSlot2,
-						m.MemberSlot3,
-						m.MemberSlot4,
-						m.MemberSlot5,
-						m.MemberSlot6,
-						m.MemberSlot7
-					})
-					.FirstAsync();
+				await foreach (var entry in _getMatchesInRange(db, startID, endID))
+				{
+					// Load JSON members (optional optimization below)
+					var entity = await db.MatchHistory
+						.Where(m => m.MatchId == entry.match_id)
+						.Select(m => new
+						{
+							m.MemberSlot0,
+							m.MemberSlot1,
+							m.MemberSlot2,
+							m.MemberSlot3,
+							m.MemberSlot4,
+							m.MemberSlot5,
+							m.MemberSlot6,
+							m.MemberSlot7
+						})
+						.FirstAsync();
 
-				// Deserialize only if not null
-				AddMemberIfNotNull(entry, entity.MemberSlot0);
-				AddMemberIfNotNull(entry, entity.MemberSlot1);
-				AddMemberIfNotNull(entry, entity.MemberSlot2);
-				AddMemberIfNotNull(entry, entity.MemberSlot3);
-				AddMemberIfNotNull(entry, entity.MemberSlot4);
-				AddMemberIfNotNull(entry, entity.MemberSlot5);
-				AddMemberIfNotNull(entry, entity.MemberSlot6);
-				AddMemberIfNotNull(entry, entity.MemberSlot7);
+					// Deserialize only if not null
+					AddMemberIfNotNull(entry, entity.MemberSlot0);
+					AddMemberIfNotNull(entry, entity.MemberSlot1);
+					AddMemberIfNotNull(entry, entity.MemberSlot2);
+					AddMemberIfNotNull(entry, entity.MemberSlot3);
+					AddMemberIfNotNull(entry, entity.MemberSlot4);
+					AddMemberIfNotNull(entry, entity.MemberSlot5);
+					AddMemberIfNotNull(entry, entity.MemberSlot6);
+					AddMemberIfNotNull(entry, entity.MemberSlot7);
 
-				collection.matches.Add(entry);
+					collection.matches.Add(entry);
+				}
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"[ERROR] GetMatchesInRange failed: {ex.Message}");
 			}
 
 			return collection;
@@ -686,8 +724,16 @@ namespace Database
 
 		public static async Task<long> GetHighestMatchID(AppDbContext db)
 		{
-			long? result = await _getHighestMatchId(db);
-			return result ?? -1;
+			try
+			{
+				long? result = await _getHighestMatchId(db);
+				return result ?? -1;
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"[ERROR] GetHighestMatchID failed: {ex.Message}");
+				return -1;
+			}
 		}
 
 		// Called when a lobby is deleted, thats the true end of a match
@@ -696,11 +742,18 @@ namespace Database
 			if (lobby.MatchID == 0)
 				return;
 
-			await db.MatchHistory
-				.Where(m => m.MatchId == (long)lobby.MatchID && !m.Finished)
-				.ExecuteUpdateAsync(s => s
-					.SetProperty(m => m.Finished, true)
-					.SetProperty(m => m.TimeFinished, DateTime.UtcNow));
+			try
+			{
+				await db.MatchHistory
+					.Where(m => m.MatchId == (long)lobby.MatchID && !m.Finished)
+					.ExecuteUpdateAsync(s => s
+						.SetProperty(m => m.Finished, true)
+						.SetProperty(m => m.TimeFinished, DateTime.UtcNow));
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"[ERROR] CommitLobbyToMatchHistory failed: {ex.Message}");
+			}
 		}
 
 		// METADATA
@@ -737,38 +790,45 @@ namespace Database
 			if (matchId == 0 || slotIndex < 0 || slotIndex > 7)
 				return;
 
-			// 1. Load JSON for this slot
-			string? json = await _getMemberSlot(db, (long)matchId, slotIndex);
-			if (string.IsNullOrEmpty(json))
-				return;
-
-			// 2. Deserialize
-			MatchdataMemberModel? modelN = JsonSerializer.Deserialize<MatchdataMemberModel?>(json);
-			if (modelN == null)
-				return;
-
-			MatchdataMemberModel model = modelN.Value;
-
-			// 3. Ensure metadata list exists
-			model.metadata ??= new List<MemberMetadataModel>();
-
-			// 4. Append metadata entry
-			model.metadata.Add(new MemberMetadataModel
+			try
 			{
-				file_name = fileName,
-				file_type = (EMetadataFileType)fileType
-			});
+				// 1. Load JSON for this slot
+				string? json = await _getMemberSlot(db, (long)matchId, slotIndex);
+				if (string.IsNullOrEmpty(json))
+					return;
 
-			// 5. Serialize back
-			string updatedJson = JsonSerializer.Serialize(model);
+				// 2. Deserialize
+				MatchdataMemberModel? modelN = JsonSerializer.Deserialize<MatchdataMemberModel?>(json);
+				if (modelN == null)
+					return;
 
-			// 6. Build setter expression
-			var setter = BuildSlotSetter(slotIndex, updatedJson);
+				MatchdataMemberModel model = modelN.Value;
 
-			// 7. Execute update (single SQL UPDATE)
-			await db.MatchHistory
-				.Where(m => m.MatchId == (long)matchId)
-				.ExecuteUpdateAsync(setter);
+				// 3. Ensure metadata list exists
+				model.metadata ??= new List<MemberMetadataModel>();
+
+				// 4. Append metadata entry
+				model.metadata.Add(new MemberMetadataModel
+				{
+					file_name = fileName,
+					file_type = (EMetadataFileType)fileType
+				});
+
+				// 5. Serialize back
+				string updatedJson = JsonSerializer.Serialize(model);
+
+				// 6. Build setter expression
+				var setter = BuildSlotSetter(slotIndex, updatedJson);
+
+				// 7. Execute update (single SQL UPDATE)
+				await db.MatchHistory
+					.Where(m => m.MatchId == (long)matchId)
+					.ExecuteUpdateAsync(setter);
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"[ERROR] AttachMatchHistoryMetadata failed: {ex.Message}");
+			}
 		}
 
 		// ELO
@@ -779,17 +839,24 @@ namespace Database
 			if (lobby.LobbyType != ELobbyType.QuickMatch)
 				return;
 
-			int dayOfYear = lobby.TimeCreated.DayOfYear;
-			int monthOfYear = lobby.TimeCreated.Month;
-			int year = lobby.TimeCreated.Year;
+			try
+			{
+				int dayOfYear = lobby.TimeCreated.DayOfYear;
+				int monthOfYear = lobby.TimeCreated.Month;
+				int year = lobby.TimeCreated.Year;
 
-			var members = await LoadMatchMembersAsync(db, (long)lobby.MatchID);
-			if (members.Count == 0)
-				return;
+				var members = await LoadMatchMembersAsync(db, (long)lobby.MatchID);
+				if (members.Count == 0)
+					return;
 
-			await UpdateCurrentEloAsync(db, members);
-			await UpdatePeriodEloAndLeaderboardsAsync(
-				db, members, dayOfYear, monthOfYear, year);
+				await UpdateCurrentEloAsync(db, members);
+				await UpdatePeriodEloAndLeaderboardsAsync(
+					db, members, dayOfYear, monthOfYear, year);
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"[ERROR] UpdateLeaderboardAndElo failed: {ex.Message}");
+			}
 		}
 		private static async Task<List<MatchdataMemberModel>> LoadMatchMembersAsync(
 			AppDbContext db, long matchId)

@@ -69,12 +69,20 @@ public static class DailyStatsManager
 
 	public static async Task LoadFromDB(AppDbContext db)
 	{
-		int day_of_year = DateTime.Now.DayOfYear;
-		g_StatsContainer = await db.DailyStats.FirstOrDefaultAsync(x => x.DayOfYear == day_of_year);
-
-		// if null, instantiate, but dont save immediately, let the normal save timer handle it
-		if (g_StatsContainer == null)
+		try
 		{
+			int day_of_year = DateTime.Now.DayOfYear;
+			g_StatsContainer = await db.DailyStats.FirstOrDefaultAsync(x => x.DayOfYear == day_of_year);
+
+			// if null, instantiate, but dont save immediately, let the normal save timer handle it
+			if (g_StatsContainer == null)
+			{
+				g_StatsContainer = new DailyStat();
+			}
+		}
+		catch (Exception ex)
+		{
+			Console.WriteLine($"[ERROR] DailyStats.LoadFromDB failed: {ex.Message}");
 			g_StatsContainer = new DailyStat();
 		}
 	}
@@ -82,24 +90,31 @@ public static class DailyStatsManager
 	// TODO_EFCORE: This can be optimized
 	public static async Task SaveToDB(AppDbContext db)
 	{
-		int day_of_year = DateTime.Now.DayOfYear;
-
-		var entity = await db.DailyStats.AsTracking()
-			.FirstOrDefaultAsync(x => x.DayOfYear == day_of_year);
-
-		// Insert if new, otherwise update
-		if (entity == null)
+		try
 		{
-			entity = g_StatsContainer;
-			db.DailyStats.Add(entity);
-		}
-		else
-		{
-			entity.Stats = g_StatsContainer.Stats;
-			db.DailyStats.Update(entity);
-		}
+			int day_of_year = DateTime.Now.DayOfYear;
 
-		await db.SaveChangesAsync();
+			var entity = await db.DailyStats.AsTracking()
+				.FirstOrDefaultAsync(x => x.DayOfYear == day_of_year);
+
+			// Insert if new, otherwise update
+			if (entity == null)
+			{
+				entity = g_StatsContainer;
+				db.DailyStats.Add(entity);
+			}
+			else
+			{
+				entity.Stats = g_StatsContainer.Stats;
+				db.DailyStats.Update(entity);
+			}
+
+			await db.SaveChangesAsync();
+		}
+		catch (Exception ex)
+		{
+			Console.WriteLine($"[ERROR] DailyStats.SaveToDB failed: {ex.Message}");
+		}
 	}
 
 	public static void RegisterOutcome(int army, bool bWon)
