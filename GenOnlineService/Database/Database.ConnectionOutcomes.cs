@@ -126,6 +126,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] StoreConnectionOutcome failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 

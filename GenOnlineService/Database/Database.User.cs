@@ -1,4 +1,4 @@
-/*
+﻿/*
 **    GeneralsOnline Game Services - Backend Services for Command & Conquer Generals Online: Zero Hour
 **    Copyright (C) 2025  GeneralsOnline Development Team
 **
@@ -193,6 +193,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] GetPendingLoginState failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 				return null;
 			}
 		}
@@ -223,6 +224,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] PendingLogins.Cleanup failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 
@@ -239,6 +241,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] GetUserIDFromPendingLogin failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 				return -1;
 			}
 		}
@@ -256,6 +259,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] CleanupPendingLogin failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 
@@ -317,6 +321,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] RegisterUserDevice failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 	}
@@ -419,6 +424,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] GetBulkELOData failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 
 			return results;
@@ -473,6 +479,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] IsUserAdmin failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 				return false;
 			}
 		}
@@ -494,6 +501,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] GetDisplayNameBulk failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 
 			return dict;
@@ -508,6 +516,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] IsUserBanned failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 				return false;
 			}
 		}
@@ -522,6 +531,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] GetDisplayName failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 				return string.Empty;
 			}
 		}
@@ -535,6 +545,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] GetUserLobbyPreferences failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 				return null;
 			}
 		}
@@ -553,6 +564,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] SetFavorite_LimitSuperweapons failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 
@@ -568,6 +580,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] GetELOData failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 
 			return new EloData(EloConfig.BaseRating, 0);
@@ -586,6 +599,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] SetFavorite_Map failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 
@@ -603,6 +617,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] UpdateLastLoginData failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 
@@ -619,6 +634,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] SetFavorite_StartingMoney failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 
@@ -634,6 +650,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] SetFavorite_Side failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 
@@ -650,6 +667,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] SetDisplayName failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 
@@ -665,6 +683,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] SetFavorite_Color failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 
@@ -682,6 +701,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] SaveELOData failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 

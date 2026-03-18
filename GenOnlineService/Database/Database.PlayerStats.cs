@@ -91,6 +91,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] GetPlayerStats failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 				return new PlayerStats(userId, EloConfig.BaseRating, 0);
 			}
 
@@ -123,6 +124,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] GetPlayerStats failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 
 			return ps;
@@ -185,6 +187,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] UpdatePlayerStat failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 

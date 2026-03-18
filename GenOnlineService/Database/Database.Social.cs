@@ -132,6 +132,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] GetFriends failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 
 			return result;
@@ -150,6 +151,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] GetBlocked failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 
 			return result;
@@ -168,6 +170,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] GetPendingFriendsRequests failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 
 			return result;
@@ -187,6 +190,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] RemovePendingFriendRequest failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 
@@ -205,6 +209,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] CreateFriendship failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 
@@ -221,6 +226,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] RemoveFriendship failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 
@@ -239,6 +245,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] AddBlock failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 
@@ -253,6 +260,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] RemoveBlock failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 
@@ -271,6 +279,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] AddPendingFriendRequest failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 

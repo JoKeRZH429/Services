@@ -910,6 +910,7 @@ namespace GenOnlineService
 					catch (Exception ex)
 					{
 						Console.WriteLine($"[ERROR] UpdateState placeholder creation failed: {ex.Message}");
+						SentrySdk.CaptureException(ex);
 					}
 
 					// calculate first probe time
@@ -1446,6 +1447,7 @@ namespace GenOnlineService
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] DeleteLobby failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 				return false;
 			}
 		}

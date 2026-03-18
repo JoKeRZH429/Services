@@ -1,4 +1,4 @@
-/*
+﻿/*
 **    GeneralsOnline Game Services - Backend Services for Command & Conquer Generals Online: Zero Hour
 **    Copyright (C) 2025  GeneralsOnline Development Team
 **
@@ -83,6 +83,7 @@ public static class DailyStatsManager
 		catch (Exception ex)
 		{
 			Console.WriteLine($"[ERROR] DailyStats.LoadFromDB failed: {ex.Message}");
+			SentrySdk.CaptureException(ex);
 			g_StatsContainer = new DailyStat();
 		}
 	}
@@ -114,6 +115,7 @@ public static class DailyStatsManager
 		catch (Exception ex)
 		{
 			Console.WriteLine($"[ERROR] DailyStats.SaveToDB failed: {ex.Message}");
+			SentrySdk.CaptureException(ex);
 		}
 	}
 
@@ -143,6 +145,7 @@ public static class DailyStatsManager
 		catch (Exception ex)
 		{
 			Console.WriteLine($"[ERROR] RegisterOutcome failed: {ex.Message}");
+			SentrySdk.CaptureException(ex);
 		}
 	}
 }

@@ -385,6 +385,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] CommitPlayerOutcome failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 
@@ -518,6 +519,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] CreatePlaceholderMatchHistory failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 				return 0;
 			}
 		}
@@ -618,6 +620,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] DetermineLobbyWinnerIfNotPresent failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 
@@ -659,6 +662,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] UpdateMatchHistoryMakeWinner failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 
@@ -708,6 +712,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] GetMatchesInRange failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 
 			return collection;
@@ -735,6 +740,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] GetHighestMatchID failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 				return -1;
 			}
 		}
@@ -756,6 +762,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] CommitLobbyToMatchHistory failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 
@@ -831,6 +838,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] AttachMatchHistoryMetadata failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 
@@ -859,6 +867,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] UpdateLeaderboardAndElo failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 		private static async Task<List<MatchdataMemberModel>> LoadMatchMembersAsync(

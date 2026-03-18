@@ -1,4 +1,4 @@
-/*
+﻿/*
 **    GeneralsOnline Game Services - Backend Services for Command & Conquer Generals Online: Zero Hour
 **    Copyright (C) 2025  GeneralsOnline Development Team
 **
@@ -115,6 +115,7 @@ namespace Database
 			catch (Exception ex)
 			{
 				Console.WriteLine($"[ERROR] CommitStats failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
 			}
 		}
 
