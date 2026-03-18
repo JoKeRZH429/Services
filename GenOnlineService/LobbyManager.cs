@@ -899,11 +899,18 @@ namespace GenOnlineService
 				// lobby cant have AI and must have at least 2 human players at some point
 				if (WasPVPAtStart() && !HadAIAtStart())
 				{
-					// create placeholder
-					using var scope = ServiceLocator.Services.CreateScope();
-					var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-					await using var db = await factory.CreateDbContextAsync();
-					await Database.MatchHistory.CreatePlaceholderMatchHistory(db, this);
+					try
+					{
+						// create placeholder
+						using var scope = ServiceLocator.Services.CreateScope();
+						var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+						await using var db = await factory.CreateDbContextAsync();
+						await Database.MatchHistory.CreatePlaceholderMatchHistory(db, this);
+					}
+					catch (Exception ex)
+					{
+						Console.WriteLine($"[ERROR] UpdateState placeholder creation failed: {ex.Message}");
+					}
 
 					// calculate first probe time
 					CalculateNextProbeTime(true);
@@ -1145,7 +1152,7 @@ namespace GenOnlineService
 			foreach (Lobby lobbyToRemove in lstLobbiesToRemove)
 			{
                 // remove it, also commit it + update leaderboard
-                DeleteLobby(lobbyToRemove);
+                await DeleteLobby(lobbyToRemove);
             }
 		}
 
@@ -1399,40 +1406,48 @@ namespace GenOnlineService
 
 		public async Task<bool> DeleteLobby(Lobby lobby)
 		{
-			using var scope = _services.CreateScope();
-			var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
-			await using var db = await factory.CreateDbContextAsync();
-
-			if (lobby.State != ELobbyState.COMPLETE)
+			try
 			{
-				// make done
-				await lobby.UpdateState(ELobbyState.COMPLETE);
+				using var scope = _services.CreateScope();
+				var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+				await using var db = await factory.CreateDbContextAsync();
 
-				// attempt to commit it
-				await Database.MatchHistory.CommitLobbyToMatchHistory(db, lobby);
-			}
-
-			// delete
-			bool bRemoved = m_dictLobbies.Remove(lobby.LobbyID, out _);
-			await WebSocketManager.SendNewOrDeletedLobbyToAllNetworkRoomMembers(lobby.NetworkRoomID);
-
-			// only do this once
-			if (bRemoved)
-			{
-				// unsubscribe from self-destruct event
-				lobby.OnLobbyNeedsDestroyed -= HandleLobbyNeedsDestroyed;
-
-				// make sure we have a winner
-				await Database.MatchHistory.DetermineLobbyWinnerIfNotPresent(db, lobby);
-
-				// if its a quickmatch, update our leaderboards
-				if (lobby.LobbyType == ELobbyType.QuickMatch)
+				if (lobby.State != ELobbyState.COMPLETE)
 				{
-					await Database.MatchHistory.UpdateLeaderboardAndElo(db, lobby);
-                }
-			}
+					// make done
+					await lobby.UpdateState(ELobbyState.COMPLETE);
 
-			return bRemoved;
+					// attempt to commit it
+					await Database.MatchHistory.CommitLobbyToMatchHistory(db, lobby);
+				}
+
+				// delete
+				bool bRemoved = m_dictLobbies.Remove(lobby.LobbyID, out _);
+				await WebSocketManager.SendNewOrDeletedLobbyToAllNetworkRoomMembers(lobby.NetworkRoomID);
+
+				// only do this once
+				if (bRemoved)
+				{
+					// unsubscribe from self-destruct event
+					lobby.OnLobbyNeedsDestroyed -= HandleLobbyNeedsDestroyed;
+
+					// make sure we have a winner
+					await Database.MatchHistory.DetermineLobbyWinnerIfNotPresent(db, lobby);
+
+					// if its a quickmatch, update our leaderboards
+					if (lobby.LobbyType == ELobbyType.QuickMatch)
+					{
+						await Database.MatchHistory.UpdateLeaderboardAndElo(db, lobby);
+					}
+				}
+
+				return bRemoved;
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"[ERROR] DeleteLobby failed: {ex.Message}");
+				return false;
+			}
 		}
 
 		public bool IsUserInLobby(Lobby lobby, Int64 user_id)

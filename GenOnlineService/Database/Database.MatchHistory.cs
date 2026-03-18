@@ -687,7 +687,10 @@ namespace Database
 							m.MemberSlot6,
 							m.MemberSlot7
 						})
-						.FirstAsync();
+						.FirstOrDefaultAsync();
+
+						if (entity == null)
+							continue;
 
 					// Deserialize only if not null
 					AddMemberIfNotNull(entry, entity.MemberSlot0);
