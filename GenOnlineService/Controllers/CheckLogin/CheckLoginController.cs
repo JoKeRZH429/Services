@@ -141,6 +141,12 @@ namespace GenOnlineService.Controllers
 								}
 
 								user_id = highestIDFound + 1;
+
+								bool bTestSPOP = false;
+								if (bTestSPOP)
+								{
+									user_id = 0;
+								}
 								strDisplayName = String.Format("DEV_ACCOUNT_{0}", Math.Abs(user_id) - 1);
 
 

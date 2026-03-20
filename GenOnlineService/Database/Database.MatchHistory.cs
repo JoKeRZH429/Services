@@ -1,4 +1,4 @@
-﻿/*
+/*
 **    GeneralsOnline Game Services - Backend Services for Command & Conquer Generals Online: Zero Hour
 **    Copyright (C) 2025  GeneralsOnline Development Team
 **
@@ -545,14 +545,17 @@ namespace Database
 					}
 				}
 
-				// 4. If winner exists, propagate to teammates
-				if (hasWinner && winnerTeam != -1)
+				// 4. If winner exists, propagate to teammates and return
+				if (hasWinner)
 				{
-					foreach (var kv in members)
+					if (winnerTeam != -1)
 					{
-						if (kv.Value.team == winnerTeam)
+						foreach (var kv in members)
 						{
-							await UpdateMatchHistoryMakeWinner(db, lobby.MatchID, kv.Key);
+							if (kv.Value.team == winnerTeam)
+							{
+								await UpdateMatchHistoryMakeWinner(db, lobby.MatchID, kv.Key);
+							}
 						}
 					}
 
@@ -916,6 +919,9 @@ namespace Database
 					if (b.team == a.team && a.team != -1)
 						continue;
 
+					if (a.user_id >= b.user_id)
+						continue;
+
 					ref EloData A = ref CollectionsMarshal.GetValueRefOrAddDefault(
 						dictElo, a.user_id, out _);
 
@@ -990,6 +996,9 @@ namespace Database
 						continue;
 
 					if (b.team == a.team && a.team != -1)
+						continue;
+
+					if (a.user_id >= b.user_id)
 						continue;
 
 					// Daily
