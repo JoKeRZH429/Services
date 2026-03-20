@@ -466,9 +466,10 @@ namespace GenOnlineService
 
 			try
 			{
-				if (sourceData != null)
+				if (oldWS != null)
 				{
-					await sourceData.CloseWebsocket(WebSocketCloseStatus.NormalClosure, "Session being deleted");
+					// Close the WS directly, dont rely on session data as it may be linked to something else at this point
+					await oldWS.CloseAsync(WebSocketCloseStatus.NormalClosure, "Session being deleted");
 				}
 			}
 			catch
@@ -674,7 +675,14 @@ namespace GenOnlineService
 									{
 										if (sessType == EUserSessionType.GameLauncher)
 										{
-											strDisplayName += " [LAUNCHER]";
+											if (sessionData.Value.m_client_id == KnownClients.EKnownClients.genhub)
+											{
+												strDisplayName += " [GENHUB]";
+											}
+											else
+											{
+												strDisplayName += " [LAUNCHER]";
+											}
 										}
 										else if (sessType == EUserSessionType.ChatClient)
 										{
