@@ -125,10 +125,12 @@ namespace GenOnlineService.Controllers
 				return;
 			}
 
+			EUserSessionType sessType = TokenHelper.GetSessionType(this);
+
 			await using var db = await _dbFactory.CreateDbContextAsync();
 			UserWebSocketInstance wsSess = await WebSocketManager.CreateSession(
 				db,
-				EUserSessionType.GameClient,
+				sessType,
 				bIsReconnect,
 				user_id,
 				client_id,
