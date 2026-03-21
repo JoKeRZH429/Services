@@ -413,7 +413,7 @@ namespace Database
 
 			int activePlayers = groups.Sum();
 
-			if (activePlayers == 0)
+			if (activePlayers == 0 || groups.Count == 1)
 			{
 				return "Unknown";
 			}
