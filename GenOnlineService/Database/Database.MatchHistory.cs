@@ -402,30 +402,28 @@ namespace Database
 
 		private static string ComputeRosterType(Dictionary<int, int> playersPerTeam)
 		{
-			int noTeamCount = playersPerTeam.TryGetValue(-1, out int n) ? n : 0;
+			int noTeamCount = playersPerTeam.GetValueOrDefault(-1, 0);
 
-			var teamedGroups = playersPerTeam
+			var groups = playersPerTeam
 				.Where(kv => kv.Key != -1)
 				.Select(kv => kv.Value)
+				.Concat(Enumerable.Repeat(1, noTeamCount))
 				.OrderBy(c => c)
 				.ToList();
 
-			int activePlayers = noTeamCount + teamedGroups.Sum();
+			int activePlayers = groups.Sum();
 
 			if (activePlayers == 0)
 			{
 				return "Unknown";
 			}
 
-			bool isFFA = activePlayers > 2 &&
-						 (noTeamCount == activePlayers || teamedGroups.All(c => c == 1));
-
-			if (isFFA)
+			if (activePlayers > 2 && groups.All(c => c == 1))
 			{
 				return $"{activePlayers} Player FFA";
 			}
 
-			return string.Join("v", teamedGroups);
+			return string.Join("v", groups);
 		}
 
 
