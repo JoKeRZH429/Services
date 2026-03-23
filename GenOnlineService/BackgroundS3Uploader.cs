@@ -32,6 +32,9 @@ class S3QueuedUploadEntry
     public Int64 m_UserID { get; init; }
     public EScreenshotType m_screenshotTypeIfScreenshot { get; init; }
 
+    public int m_RetryCount { get; set; } = 0;
+    public long m_NextRetryTime { get; set; } = 0;
+
     public S3QueuedUploadEntry(ES3UploadType uploadType, byte[] fileBytes, UInt64 match_id, Int64 user_id, int slotIndexInLobby, EScreenshotType screenshotTypeIfScreenshot)
     {
         m_uploadType = uploadType;
@@ -71,6 +74,13 @@ static class BackgroundS3Uploader
             // do we have something to upload?
             if (!m_queueUploads.IsEmpty)
             {
+                // If the front entry has a backoff delay, wait it out
+                if (m_queueUploads.TryPeek(out S3QueuedUploadEntry peeked) && Environment.TickCount64 < peeked.m_NextRetryTime)
+                {
+                    System.Threading.Thread.Sleep(10);
+                    continue;
+                }
+
                 if (Environment.TickCount64 - g_LastUpload > 100) // max one file per 100ms
                 {
                     // queue the next thing
@@ -200,11 +210,39 @@ static class BackgroundS3Uploader
 
 				SentrySdk.CaptureException(ex);
 
-				// reqeueue at the end to try again
-				BackgroundS3Uploader.QueueUpload(entry.m_uploadType, entry.m_FileData.ToArray(), entry.m_MatchID, entry.m_UserID, entry.m_slotIndexInLobby, entry.m_screenshotTypeIfScreenshot);
+                entry.m_RetryCount++;
+
+                if (entry.m_RetryCount >= 5)
+                {
+                    Console.WriteLine($"Upload failed after 5 attempts, dropping entry (match {entry.m_MatchID}, user {entry.m_UserID}).");
+                    return;
+                }
+
+                // Exponential backoff: 2s, 4s, 8s, 16s
+                long backoffMs = (long)Math.Pow(2, entry.m_RetryCount) * 1000L;
+
+                // For 429 / S3 throttle responses, enforce a minimum 30s wait
+                bool isThrottled = ex is AmazonS3Exception s3Ex &&
+                    (s3Ex.StatusCode == HttpStatusCode.TooManyRequests ||
+                     s3Ex.ErrorCode == "SlowDown" ||
+                     s3Ex.ErrorCode == "ThrottlingException");
+
+                if (isThrottled)
+                    backoffMs = Math.Max(backoffMs, 30_000L);
+
+                entry.m_NextRetryTime = Environment.TickCount64 + backoffMs;
+
+                Console.WriteLine($"Retrying upload in {backoffMs}ms (attempt {entry.m_RetryCount}/5, throttled={isThrottled}).");
+
+				RequeueEntry(entry);
                 return;
             }
         }
+    }
+
+    private static void RequeueEntry(S3QueuedUploadEntry entry)
+    {
+        m_queueUploads.Enqueue(entry);
     }
 
     // TODO: Limit file sizes when queueing, since they could flood memory
