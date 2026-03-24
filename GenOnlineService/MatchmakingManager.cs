@@ -554,6 +554,10 @@ static class MatchmakingManager
 		public bool IsJoiningUserBlockedByOrHasBlockedAnyBucketMember(UserSession? joiningUserSession, Int64 joining_user)
 		{
 			// NOTE: We check blocking in both directions, joiner blocked them, or joiner is blocked by a player
+			SharedUserData? joiningUserData = joiningUserSession != null
+				? GenOnlineService.WebSocketManager.GetSharedDataForUser(joiningUserSession.m_UserID)
+				: null;
+
 			foreach (MatchmakingBucketMember member in m_lstMembers)
 			{
 				UserSession? memberSession = member.GetAssociatedSession();
@@ -563,10 +567,13 @@ static class MatchmakingManager
 
 					if (memberUserData != null)
 					{
-						if (memberUserData.GetSocialContainer().Blocked.Contains(joining_user) || memberUserData.GetSocialContainer().Blocked.Contains(memberSession.m_UserID))
-						{
+						// Bucket member has blocked the joining user
+						if (memberUserData.GetSocialContainer().Blocked.Contains(joining_user))
 							return true;
-						}
+
+						// Joining user has blocked the bucket member
+						if (joiningUserData?.GetSocialContainer().Blocked.Contains(memberSession.m_UserID) == true)
+							return true;
 					}
 				}
 			}

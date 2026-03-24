@@ -144,6 +144,10 @@ namespace GenOnlineService.Controllers
                                     {
                                         Response.StatusCode = (int)HttpStatusCode.OK;
                                     }
+                                    else if (queueResult == ES3QueueUploadResult.Failed_QueueFull)
+                                    {
+                                        Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
+                                    }
                                     else
                                     {
                                         Response.StatusCode = (int)HttpStatusCode.UnsupportedMediaType;

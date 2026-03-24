@@ -817,46 +817,38 @@ namespace Database
 			if (matchId == 0 || slotIndex < 0 || slotIndex > 7)
 				return;
 
-			try
+			// 1. Load JSON for this slot
+			string? json = await _getMemberSlot(db, (long)matchId, slotIndex);
+			if (string.IsNullOrEmpty(json))
+				return;
+
+			// 2. Deserialize
+			MatchdataMemberModel? modelN = JsonSerializer.Deserialize<MatchdataMemberModel?>(json);
+			if (modelN == null)
+				return;
+
+			MatchdataMemberModel model = modelN.Value;
+
+			// 3. Ensure metadata list exists
+			model.metadata ??= new List<MemberMetadataModel>();
+
+			// 4. Append metadata entry
+			model.metadata.Add(new MemberMetadataModel
 			{
-				// 1. Load JSON for this slot
-				string? json = await _getMemberSlot(db, (long)matchId, slotIndex);
-				if (string.IsNullOrEmpty(json))
-					return;
+				file_name = fileName,
+				file_type = (EMetadataFileType)fileType
+			});
 
-				// 2. Deserialize
-				MatchdataMemberModel? modelN = JsonSerializer.Deserialize<MatchdataMemberModel?>(json);
-				if (modelN == null)
-					return;
+			// 5. Serialize back
+			string updatedJson = JsonSerializer.Serialize(model);
 
-				MatchdataMemberModel model = modelN.Value;
+			// 6. Build setter expression
+			var setter = BuildSlotSetter(slotIndex, updatedJson);
 
-				// 3. Ensure metadata list exists
-				model.metadata ??= new List<MemberMetadataModel>();
-
-				// 4. Append metadata entry
-				model.metadata.Add(new MemberMetadataModel
-				{
-					file_name = fileName,
-					file_type = (EMetadataFileType)fileType
-				});
-
-				// 5. Serialize back
-				string updatedJson = JsonSerializer.Serialize(model);
-
-				// 6. Build setter expression
-				var setter = BuildSlotSetter(slotIndex, updatedJson);
-
-				// 7. Execute update (single SQL UPDATE)
-				await db.MatchHistory
-					.Where(m => m.MatchId == (long)matchId)
-					.ExecuteUpdateAsync(setter);
-			}
-			catch (Exception ex)
-			{
-				Console.WriteLine($"[ERROR] AttachMatchHistoryMetadata failed: {ex.Message}");
-				SentrySdk.CaptureException(ex);
-			}
+			// 7. Execute update (single SQL UPDATE)
+			await db.MatchHistory
+				.Where(m => m.MatchId == (long)matchId)
+				.ExecuteUpdateAsync(setter);
 		}
 
 		// ELO

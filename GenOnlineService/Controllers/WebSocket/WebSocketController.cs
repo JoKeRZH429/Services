@@ -468,9 +468,57 @@ namespace GenOnlineService.Controllers
 
 					if (nameChangeRequest != null)
 					{
-						// dont allow admin or staff
-						if (nameChangeRequest.name.ToLower().Contains("admin") || nameChangeRequest.name.ToLower().Contains("staff"))
+						// TODO: Move this to a file or DB
+						List<string> lstProtectedNames = new List<string>()
 						{
+							"admin",
+							"staff",
+							"mass^",
+							"moderator",
+							"hitler",
+							"h1tler",
+							"h1tl3r",
+							"hittler",
+							"h1ttler",
+							"h1ttl3r",
+							"olda",
+							"oldanalytics",
+							"ibra",
+							"x64",
+							"ronin"
+						};
+
+						string strNameRequestLower = nameChangeRequest.name.ToLower();
+
+						// dont allow protected names
+						foreach (string strProtectedName in lstProtectedNames)
+						{
+							if (strNameRequestLower.Contains(strProtectedName))
+							{
+								// response back to user
+								WebSocketMessage_NetworkRoomChatMessageOutbound outboundMsg = new WebSocketMessage_NetworkRoomChatMessageOutbound();
+								outboundMsg.msg_id = (int)EWebSocketMessageID.NETWORK_ROOM_CHAT_FROM_SERVER;
+								outboundMsg.message = String.Format("--NAME CHANGE-- The display name you tried to set contains a protected word/phrase ({0} - {1})", nameChangeRequest.name, strProtectedName);
+								outboundMsg.admin = true; // dont care for actions
+								outboundMsg.action = false;
+								byte[] bytesJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(outboundMsg));
+								sourceUserSession.QueueWebsocketSend(bytesJSON);
+
+								return;
+							}
+						}
+
+						if (strNameRequestLower.StartsWith(" ") || strNameRequestLower.EndsWith(" "))
+						{
+							// response back to user
+							WebSocketMessage_NetworkRoomChatMessageOutbound outboundMsg = new WebSocketMessage_NetworkRoomChatMessageOutbound();
+							outboundMsg.msg_id = (int)EWebSocketMessageID.NETWORK_ROOM_CHAT_FROM_SERVER;
+							outboundMsg.message = String.Format("--NAME CHANGE-- Display names cannot begin or end with spaces ({0})", nameChangeRequest.name);
+							outboundMsg.admin = true; // dont care for actions
+							outboundMsg.action = false;
+							byte[] bytesJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(outboundMsg));
+							sourceUserSession.QueueWebsocketSend(bytesJSON);
+
 							return;
 						}
 
@@ -491,8 +539,8 @@ namespace GenOnlineService.Controllers
 								WebSocketMessage_NetworkRoomChatMessageOutbound outboundMsg = new WebSocketMessage_NetworkRoomChatMessageOutbound();
 								outboundMsg.msg_id = (int)EWebSocketMessageID.NETWORK_ROOM_CHAT_FROM_SERVER;
 
-								outboundMsg.message = String.Format("[NAME CHANGE] {0} has changed their display name to {1}", sourceUserData.m_strDisplayName, nameChangeRequest.name);
-								outboundMsg.admin = false; // dont care for actions
+								outboundMsg.message = String.Format("--NAME CHANGE-- {0} has changed their display name to {1}", sourceUserData.m_strDisplayName, nameChangeRequest.name);
+								outboundMsg.admin = true;
 								outboundMsg.action = false;
 
 								// Serialize once before broadcasting
@@ -531,8 +579,8 @@ namespace GenOnlineService.Controllers
 								// response back to user
 								WebSocketMessage_NetworkRoomChatMessageOutbound outboundMsg = new WebSocketMessage_NetworkRoomChatMessageOutbound();
 								outboundMsg.msg_id = (int)EWebSocketMessageID.NETWORK_ROOM_CHAT_FROM_SERVER;
-								outboundMsg.message = String.Format("[NAME CHANGE] The display name you tried to set is already in use by another user ({0})", nameChangeRequest.name);
-								outboundMsg.admin = false; // dont care for actions
+								outboundMsg.message = String.Format("--NAME CHANGE-- The display name you tried to set is already in use by another user ({0})", nameChangeRequest.name);
+								outboundMsg.admin = true; // dont care for actions
 								outboundMsg.action = false;
 								byte[] bytesJSON = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(outboundMsg));
 								sourceUserSession.QueueWebsocketSend(bytesJSON);

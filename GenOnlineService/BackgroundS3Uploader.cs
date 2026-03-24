@@ -20,7 +20,8 @@ public enum ES3QueueUploadResult
     Success,
     Failed_InvalidUploadType,
     Failed_InvalidImage_Size,
-    Failed_InvalidImage_Header
+    Failed_InvalidImage_Header,
+    Failed_QueueFull
 }
 
 class S3QueuedUploadEntry
@@ -38,7 +39,7 @@ class S3QueuedUploadEntry
     public S3QueuedUploadEntry(ES3UploadType uploadType, byte[] fileBytes, UInt64 match_id, Int64 user_id, int slotIndexInLobby, EScreenshotType screenshotTypeIfScreenshot)
     {
         m_uploadType = uploadType;
-        m_FileData = (byte[])fileBytes.Clone();
+        m_FileData = fileBytes;
         m_MatchID = match_id;
         m_UserID = user_id;
         m_screenshotTypeIfScreenshot = screenshotTypeIfScreenshot;
@@ -54,6 +55,11 @@ static class BackgroundS3Uploader
     // new uploads sitting behind them in the main queue.
     private static readonly List<S3QueuedUploadEntry> m_retryList = new();
     private static readonly object m_retryLock = new();
+
+    // Running total of bytes currently held across the queue and retry list.
+    // Prevents unbounded memory growth when uploads back up.
+    private static Int64 g_TotalQueuedBytes = 0;
+    private const Int64 MaxQueuedBytes = 2L * (1024 * 1024 * 1024); // 2GB
 
     private static AmazonS3Client? g_S3Client = null;
     private static readonly object m_clientLock = new();
@@ -239,6 +245,9 @@ static class BackgroundS3Uploader
 				var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
 				await using var db = await factory.CreateDbContextAsync();
 				await Database.MatchHistory.AttachMatchHistoryMetadata(db, entry.m_MatchID, entry.m_slotIndexInLobby, strFileName, fileType);
+
+				// Entry is fully done — release its memory from the tracked total.
+				Interlocked.Add(ref g_TotalQueuedBytes, -entry.m_FileData.Length);
             }
             catch (Exception ex)
             {
@@ -251,6 +260,7 @@ static class BackgroundS3Uploader
                 if (entry.m_RetryCount >= 5)
                 {
                     Console.WriteLine($"Upload failed after 5 attempts, dropping entry (match {entry.m_MatchID}, user {entry.m_UserID}).");
+					Interlocked.Add(ref g_TotalQueuedBytes, -entry.m_FileData.Length);
                     return;
                 }
 
@@ -294,7 +304,6 @@ static class BackgroundS3Uploader
         }
     }
 
-    // TODO: Limit file sizes when queueing, since they could flood memory
     public static ES3QueueUploadResult QueueUpload(ES3UploadType uploadType, byte[] fileBytes, UInt64 match_id, Int64 user_id, int slotIndexInLobby, EScreenshotType screenshotTypeIfScreenshot)
     {
         if (uploadType == ES3UploadType.Screenshot)
@@ -328,16 +337,19 @@ static class BackgroundS3Uploader
             return ES3QueueUploadResult.Failed_InvalidUploadType;
         }
 
+        // Reject if queueing this file would push total in-flight bytes over the cap.
+        // This prevents runaway memory growth when uploads back up under load.
+        if (Interlocked.Add(ref g_TotalQueuedBytes, fileBytes.Length) > MaxQueuedBytes)
+        {
+            Interlocked.Add(ref g_TotalQueuedBytes, -fileBytes.Length);
+            Console.WriteLine($"[WARN] Upload queue full ({MaxQueuedBytes / 1024 / 1024} MB cap), dropping upload for match {match_id} user {user_id}.");
+            return ES3QueueUploadResult.Failed_QueueFull;
+        }
+
         // queue it
-        S3QueuedUploadEntry newUploadEntry = new S3QueuedUploadEntry(uploadType, fileBytes, match_id, user_id, slotIndexInLobby, screenshotTypeIfScreenshot); ;
+        S3QueuedUploadEntry newUploadEntry = new S3QueuedUploadEntry(uploadType, fileBytes, match_id, user_id, slotIndexInLobby, screenshotTypeIfScreenshot);
         m_queueUploads.Enqueue(newUploadEntry);
 
         return ES3QueueUploadResult.Success;
-
-        // Upload img
-        /*
-        
-        */
-
     }
 }

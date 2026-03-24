@@ -959,12 +959,23 @@ namespace GenOnlineService
 			}
 		}
 
+		// Enough history to cover any realistic upload/outcome window; old entries just waste memory.
+		private const int MaxHistoricMatches = 50;
+
 		public void RegisterHistoricMatchID(UInt64 matchID, int slotIndex, int army)
 		{
 			m_lstHistoricMatchIDs.Add(matchID);
 			m_lstHistoricMatchIDToSlotIndexMap[matchID] = slotIndex;
 			m_lstHistoricMatchIDToArmy[matchID] = army;
 
+			// Trim oldest entries so the lists don't grow without bound over long sessions.
+			while (m_lstHistoricMatchIDs.Count > MaxHistoricMatches)
+			{
+				UInt64 oldest = m_lstHistoricMatchIDs[0];
+				m_lstHistoricMatchIDs.Remove(oldest);
+				m_lstHistoricMatchIDToSlotIndexMap.TryRemove(oldest, out _);
+				m_lstHistoricMatchIDToArmy.TryRemove(oldest, out _);
+			}
 		}
 
 		public bool WasPlayerInMatch(UInt64 matchID, out int slotIndexInLobby, out int army)
