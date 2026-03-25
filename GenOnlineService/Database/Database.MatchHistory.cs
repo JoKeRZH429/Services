@@ -659,16 +659,21 @@ namespace Database
 
 
 
-		public static async Task<MatchHistoryCollection> GetMatchesInRange(
-	AppDbContext db, long startID, long endID)
+		public static async Task<MatchHistoryCollection> GetMatchesSince(
+	AppDbContext db, DateTime since, int maxLobbiesPerRequest)
 		{
 			MatchHistoryCollection collection = new();
+
+			since = DateTime.SpecifyKind(since, DateTimeKind.Utc);
 
 			try
 			{
 				// Single query fetches metadata + all slot columns — no concurrent reader issue.
 				var rows = await db.MatchHistory
-					.Where(m => m.MatchId >= startID && m.MatchId <= endID && m.Finished)
+					.Where(m => m.Finished && m.TimeFinished >= since)
+					.OrderBy(m => m.TimeFinished)
+					.ThenBy(m => m.MatchId)
+					.Take(maxLobbiesPerRequest)
 					.Select(m => new
 					{
 						m.MatchId,
@@ -733,7 +738,7 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] GetMatchesInRange failed: {ex.Message}");
+				Console.WriteLine($"[ERROR] GetMatchesSince failed: {ex.Message}");
 				SentrySdk.CaptureException(ex);
 			}
 
