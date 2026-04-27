@@ -805,7 +805,7 @@ static class MatchmakingManager
 
 								m_LobbyID = await lobbyManager.CreateLobby(db, dummyHostUser, dummyHostUserData.m_strDisplayName, "Quickmatch Lobby", strMapName, strMapPath + ".map",
 										true, playlist.DesiredPlayers, "", 12345, false, true, 10000, false, String.Empty, -5, false, Constants.g_DefaultCameraMaxHeight, 123, 456, ELobbyType.QuickMatch,
-										EKnownAnticheatID.NONE); // NOTE: Anticheat doesnt matter here, it's a dummy lobby for quickmatch, the anticheat was already checked during the bucketing process
+										dummyHostUser.AnticheatID);
 
 								// tell both to join our lobby
 								WebSocketMessage_MatchmakerJoinLobby joinAction = new WebSocketMessage_MatchmakerJoinLobby();
