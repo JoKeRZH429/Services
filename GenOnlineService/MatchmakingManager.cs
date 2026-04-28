@@ -994,8 +994,15 @@ static class MatchmakingManager
                 new PlaylistMap("[RANK] Drallim Desert ZH v2", "[RANK] Drallim Desert ZH v2", true, 2),
                 new PlaylistMap("[RANK] Farmlands of the Fallen ZH v1", "[RANK] Farmlands of the Fallen ZH v1", true, 2),
                 new PlaylistMap("[RANK] Sakura Forest II ZH v1", "[RANK] Sakura Forest II ZH v1", true, 2),
-                new PlaylistMap("[RANK] Sovereignty ZH v1", "[RANK] Sovereignty ZH v1", true, 2)
-            }
+                new PlaylistMap("[RANK] Sovereignty ZH v1", "[RANK] Sovereignty ZH v1", true, 2),
+
+				// new maps added in 4_28_26 EAC update (for WS / from GR)
+				new PlaylistMap("Arabia v2 (2)", "Arabia v2", true, 2),
+				new PlaylistMap("SandForest Domination v5 (2)", "SandForest Domination v5", true, 2),
+				new PlaylistMap("Toxic Lake v4 (2)", "Toxic Lake v4", true, 2),
+				new PlaylistMap("Tremble v2 (2)", "Tremble v2", true, 2),
+				new PlaylistMap("[RANK] Hanamura Temple ZH v1 (2)", "[RANK] Hanamura Temple ZH v1", true, 2),
+			}
 		) },
 
 		{ 1, new Playlist(1, "6-8P FFA (Random Armies)", 6, 8, false, -1, false, 30000, new List<PlaylistMap>()
