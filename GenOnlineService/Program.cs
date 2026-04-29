@@ -699,7 +699,7 @@ namespace GenOnlineService
 
 					options.Environment = sentry_env;
 
-					options.Release = "generalsonline-services@040226";
+					options.Release = "generalsonline-services@042826";
 				});
 			}
 
