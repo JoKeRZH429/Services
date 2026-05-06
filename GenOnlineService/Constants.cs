@@ -876,6 +876,7 @@ namespace GenOnlineService
 		private ConcurrentList<UInt64> m_lstHistoricMatchIDs = new();
 		private ConcurrentDictionary<UInt64, int> m_lstHistoricMatchIDToSlotIndexMap = new();
 		private ConcurrentDictionary<UInt64, int> m_lstHistoricMatchIDToArmy = new();
+		private ConcurrentDictionary<UInt64, DateTime> m_lstHistoricMatchIDToCreationTime = new();
 
 		private Int64 m_timeAbandoned = -1;
 
@@ -1039,11 +1040,12 @@ namespace GenOnlineService
 		// Enough history to cover any realistic upload/outcome window; old entries just waste memory.
 		private const int MaxHistoricMatches = 50;
 
-		public void RegisterHistoricMatchID(UInt64 matchID, int slotIndex, int army)
+		public void RegisterHistoricMatchID(UInt64 matchID, int slotIndex, int army, DateTime creationTime)
 		{
 			m_lstHistoricMatchIDs.Add(matchID);
 			m_lstHistoricMatchIDToSlotIndexMap[matchID] = slotIndex;
 			m_lstHistoricMatchIDToArmy[matchID] = army;
+			m_lstHistoricMatchIDToCreationTime[matchID] = creationTime;
 
 			// Trim oldest entries so the lists don't grow without bound over long sessions.
 			while (m_lstHistoricMatchIDs.Count > MaxHistoricMatches)
@@ -1052,21 +1054,24 @@ namespace GenOnlineService
 				m_lstHistoricMatchIDs.Remove(oldest);
 				m_lstHistoricMatchIDToSlotIndexMap.TryRemove(oldest, out _);
 				m_lstHistoricMatchIDToArmy.TryRemove(oldest, out _);
+				m_lstHistoricMatchIDToCreationTime.TryRemove(oldest, out _);
 			}
 		}
 
-		public bool WasPlayerInMatch(UInt64 matchID, out int slotIndexInLobby, out int army)
+		public bool WasPlayerInMatch(UInt64 matchID, out int slotIndexInLobby, out int army, out DateTime lobbyCreationTime)
 		{
 			slotIndexInLobby = -1;
 			army = -1;
+			lobbyCreationTime = DateTime.UnixEpoch;
 
 			bool bWasInMatch = m_lstHistoricMatchIDs.Contains(matchID);
 
 			if (bWasInMatch)
 			{
+				// TODO: Optimize storage here
 				slotIndexInLobby = m_lstHistoricMatchIDToSlotIndexMap[matchID];
 				army = m_lstHistoricMatchIDToArmy[matchID];
-
+				lobbyCreationTime = m_lstHistoricMatchIDToCreationTime[matchID];
 			}
 
 			return bWasInMatch;
@@ -2090,7 +2095,7 @@ namespace GenOnlineService
 			endpoint = s3_endpoint;
 		}
 
-		public static async Task<string?> GetPresignedURL(EMetadataFileType fileType, EScreenshotType screenshotTypeIfScreenshot, UInt64 matchID, Int64 userID, int slotIndex)
+		public static async Task<string?> GetPresignedURL(EMetadataFileType fileType, EScreenshotType screenshotTypeIfScreenshot, UInt64 matchID, Int64 userID, int slotIndex, DateTime matchStartTime)
 		{
 			GetS3Config(out int TTL, out string access_key, out string secret_key, out string bucket_name, out string client_endpoint);
 			TimeSpan expiresIn = TimeSpan.FromMinutes(TTL);
@@ -2103,6 +2108,7 @@ namespace GenOnlineService
 			string strFileName = null;
 
 			string strContentType = String.Empty;
+			string strFolderPrefix = String.Empty; ;
 
 
 			if (fileType == EMetadataFileType.FILE_TYPE_SCREENSHOT)
@@ -2125,6 +2131,7 @@ namespace GenOnlineService
 				}
 
 				strFileName = String.Format("screenshot_{0}_{1}_{2}.jpg", screenshotTypePrefix, hour, minute);
+				strFolderPrefix = "screenshots";
 			}
 			else if (fileType == EMetadataFileType.FILE_TYPE_REPLAY)
 			{
@@ -2132,6 +2139,7 @@ namespace GenOnlineService
 				fileType = EMetadataFileType.FILE_TYPE_REPLAY;
 
 				strFileName = String.Format("match_{0}_user_{1}_replay.rep", matchID, strPerMatchUserIDKey);
+				strFolderPrefix = "replays";
 			}
 
 			if (strFileName == null)
@@ -2139,7 +2147,7 @@ namespace GenOnlineService
 				return null;
 			}
 
-			string objectKey = String.Format("match_{0}/user_{1}/{2}", matchID, strPerMatchUserIDKey, strFileName);
+			string objectKey = String.Format("{3}/{4}/{5}/{6}/match_{0}/user_{1}/{2}", matchID, strPerMatchUserIDKey, strFileName, strFolderPrefix, matchStartTime.Year, matchStartTime.Month, matchStartTime.Day);
 
 			var request = new GetPreSignedUrlRequest
 			{

@@ -203,7 +203,7 @@ namespace GenOnlineService
 			{
 				if (member.GetSession().TryGetTarget(out UserSession? session))
 				{
-					session.RegisterHistoricMatchID(MatchID, member.SlotIndex, member.Side);
+					session.RegisterHistoricMatchID(MatchID, member.SlotIndex, member.Side, TimeCreated);
 				}
 			}
 
@@ -494,7 +494,7 @@ namespace GenOnlineService
 					foreach (LobbyMember memberEntry in Members)
 					{
 						// per user endpoint
-						string? strUploadURI = await S3CredentialManager.GetPresignedURL(EMetadataFileType.FILE_TYPE_SCREENSHOT, EScreenshotType.SCREENSHOT_TYPE_GAMEPLAY, MatchID, memberEntry.UserID, memberEntry.SlotIndex);
+						string? strUploadURI = await S3CredentialManager.GetPresignedURL(EMetadataFileType.FILE_TYPE_SCREENSHOT, EScreenshotType.SCREENSHOT_TYPE_GAMEPLAY, MatchID, memberEntry.UserID, memberEntry.SlotIndex, TimeCreated);
 
 						if (strUploadURI != null) // should never be null really
 						{
