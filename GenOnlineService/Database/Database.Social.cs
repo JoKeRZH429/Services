@@ -198,6 +198,14 @@ namespace Database
 		{
 			try
 			{
+				// Check if friendship already exists (handles duplicate calls / race conditions)
+				bool alreadyExists = await db.Friends.AnyAsync(f =>
+					(f.UserId1 == userId1 && f.UserId2 == userId2) ||
+					(f.UserId1 == userId2 && f.UserId2 == userId1));
+
+				if (alreadyExists)
+					return;
+
 				db.Friends.Add(new FriendEntry
 				{
 					UserId1 = userId1,
@@ -208,6 +216,12 @@ namespace Database
 			}
 			catch (Exception ex)
 			{
+				// If two concurrent calls both passed the existence check, MySQL will throw a
+				// duplicate-key error (ER_DUP_ENTRY, code 1062). The friendship was already
+				// created by the other call, so this is not an error worth reporting.
+				if (ex.InnerException is MySqlConnector.MySqlException mysqlEx && mysqlEx.Number == 1062)
+					return;
+
 				Console.WriteLine($"[ERROR] CreateFriendship failed: {ex.Message}");
 				SentrySdk.CaptureException(ex);
 			}
