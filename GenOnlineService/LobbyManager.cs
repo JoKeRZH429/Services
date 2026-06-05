@@ -346,15 +346,15 @@ namespace GenOnlineService
 			string strAnticheatName = "OTHER AC";
 			if (inAnticheatID == EKnownAnticheatID.NONE)
 			{
-				strAnticheatName = "\u26C9NO AC";
+				strAnticheatName = "\u26C9";
 			}
 			else if (inAnticheatID == EKnownAnticheatID.GO_INTEGRATED_AC)
 			{
-				strAnticheatName = "\u26CAGOAC";
+				strAnticheatName = "\u26CA";
 			}
 			else if (inAnticheatID == EKnownAnticheatID.EASY_ANTICHEAT)
 			{
-				strAnticheatName = "\u26CAEAC";
+				strAnticheatName = "\u26CA";
 			}
 
 
