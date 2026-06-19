@@ -331,6 +331,7 @@ namespace Database
 	AppDbContext db,
 	int slotIndex,
 	ulong matchId,
+	int side,
 	int buildingsBuilt,
 	int buildingsKilled,
 	int buildingsLost,
@@ -357,6 +358,7 @@ namespace Database
 
 				// 3. Update fields
 				MatchdataMemberModel model = modelNullable.Value;
+				model.side = side;
 				model.buildings_built = buildingsBuilt;
 				model.buildings_killed = buildingsKilled;
 				model.buildings_lost = buildingsLost;

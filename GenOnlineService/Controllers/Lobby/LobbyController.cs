@@ -302,6 +302,7 @@ namespace GenOnlineService.Controllers
 						&& data.ContainsKey("units_lost")
 						&& data.ContainsKey("total_money")
 						&& data.ContainsKey("won")
+						&& data.ContainsKey("side")
 						)
 					{
 						Int64 user_id = TokenHelper.GetUserID(this);
@@ -318,6 +319,7 @@ namespace GenOnlineService.Controllers
 								int units_killed = data["units_killed"].GetInt32();
 								int units_lost = data["units_lost"].GetInt32();
 								int total_money = data["total_money"].GetInt32();
+								int side = data["side"].GetInt32();
 								bool won = data["won"].GetBoolean();
 								UInt64 match_id = data["match_id"].GetUInt64();
 
@@ -337,7 +339,7 @@ namespace GenOnlineService.Controllers
 
 								// store in DB
 								await using var db = await _dbFactory.CreateDbContextAsync();
-								await Database.MatchHistory.CommitPlayerOutcome(db, slotIndexInLobby, match_id,
+								await Database.MatchHistory.CommitPlayerOutcome(db, slotIndexInLobby, match_id, side,
 										buildings_built, buildings_killed, buildings_lost, units_built, units_killed, units_lost, total_money, won);
 							}
 						}
