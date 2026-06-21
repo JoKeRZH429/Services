@@ -155,6 +155,7 @@ public class Playlist
 	public string Name { get; private set; }
 	public int MinPlayers { get; private set; }
 	public int DesiredPlayers { get; private set; }
+	public int MinSelectedMaps { get; private set; }
 
 	public bool AllowTeams { get; private set; }
 	public int TeamSize { get; private set; }
@@ -163,11 +164,12 @@ public class Playlist
 	public List<PlaylistMap> Maps { get; private set; }
 
 	public Playlist(UInt16 a_PlaylistID, string a_strName,
-		int a_MinPlayers, int a_DesiredPlayers, bool a_bAllowTeams, int a_TeamSize, bool a_bAllowArmySelection, UInt16 a_gracePeriodAtMinPlayersMSec, List<PlaylistMap> allowedMaps)
+		int a_MinPlayers, int a_DesiredPlayers, int a_MinSelectedMaps, bool a_bAllowTeams, int a_TeamSize, bool a_bAllowArmySelection, UInt16 a_gracePeriodAtMinPlayersMSec, List<PlaylistMap> allowedMaps)
 	{
 		PlaylistID = a_PlaylistID;
 		Name = a_strName;
 		MinPlayers = a_MinPlayers;
+		MinSelectedMaps = a_MinSelectedMaps;
 		DesiredPlayers = a_DesiredPlayers;
 		AllowTeams = a_bAllowTeams;
 		TeamSize = a_TeamSize;
@@ -959,7 +961,7 @@ static class MatchmakingManager
 	// TODO_QUICKMATCH: Read from db or file
 	private static Dictionary<UInt16, Playlist> g_Playlists = new()
 	{
-		{ 0, new Playlist(0, "1v1 (Random Armies)", 2, 2, false, -1, false, 0, new List<PlaylistMap>()
+		{ 0, new Playlist(0, "1v1 (Random Armies)", 2, 2, 1, false, -1, false, 0, new List<PlaylistMap>()
 			{
 				new PlaylistMap("[RANK] Snowy Drought ZH v5 (2)", "[RANK] Snowy Drought ZH v5", true, 2),
 				new PlaylistMap("[RANK] Natural Threats ZH v4 (2)", "[RANK] Natural Threats ZH v4", true, 2),
@@ -1006,7 +1008,7 @@ static class MatchmakingManager
 			}
 		) },
 
-		{ 1, new Playlist(1, "6-8P FFA (Random Armies)", 6, 8, false, -1, false, 30000, new List<PlaylistMap>()
+		{ 1, new Playlist(1, "6-8P FFA (Random Armies)", 6, 8, 1, false, -1, false, 30000, new List<PlaylistMap>()
 			{
 				new PlaylistMap("Defcon6 (6)", "Defcon6", false, 6),
 				new PlaylistMap("Beijing Uprise v4 (6)", "Beijing Uprise v4", true, 6),
