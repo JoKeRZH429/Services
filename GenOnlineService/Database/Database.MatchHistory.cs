@@ -883,6 +883,44 @@ namespace Database
 			}
 		}
 
+		internal static async Task<MatchHistory_Entry?> LoadMatchHistoryEntryAsync(
+			AppDbContext db, long matchId)
+		{
+			var row = await db.MatchHistory.FirstOrDefaultAsync(m => m.MatchId == matchId);
+			if (row == null)
+				return null;
+
+			var entry = new MatchHistory_Entry(
+				row.MatchId,
+				row.Owner,
+				row.Name,
+				row.Finished,
+				row.Started.ToString("O"),
+				row.TimeFinished.ToString("O"),
+				row.MapName,
+				row.MapPath ?? string.Empty,
+				row.MatchRosterType,
+				row.MapOfficial,
+				row.VanillaTeams,
+				row.StartingCash,
+				row.LimitSuperweapons,
+				row.TrackStats,
+				row.AllowObservers,
+				row.MaxCamHeight
+			);
+
+			AddMemberIfNotNull(entry, row.MemberSlot0);
+			AddMemberIfNotNull(entry, row.MemberSlot1);
+			AddMemberIfNotNull(entry, row.MemberSlot2);
+			AddMemberIfNotNull(entry, row.MemberSlot3);
+			AddMemberIfNotNull(entry, row.MemberSlot4);
+			AddMemberIfNotNull(entry, row.MemberSlot5);
+			AddMemberIfNotNull(entry, row.MemberSlot6);
+			AddMemberIfNotNull(entry, row.MemberSlot7);
+
+			return entry;
+		}
+
 		// METADATA
 		private static Expression<Func<SetPropertyCalls<MatchHistoryEntry>, SetPropertyCalls<MatchHistoryEntry>>>
 	BuildSlotSetter(int slotIndex, string updatedJson)
