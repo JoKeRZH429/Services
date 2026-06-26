@@ -572,14 +572,31 @@ namespace Database
 		{
 			try
 			{
-				var result = await GetEloData(db, userId);
+				// Try fetching from the external API
+				var apiElo = await ExternalLeaderboardsClient.GetEloFromApi(userId);
+				if (apiElo != null)
+				{
+					// Persist retrieved rating to DB asynchronously for fallback
+					// await SaveELOData(db, userId, apiElo);
+					// return apiElo;
+				}
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine($"[ERROR] GetELOData API call failed: {ex.Message}");
+				SentrySdk.CaptureException(ex);
+			}
 
+			try
+			{
+				// Fall back to database ELO
+				var result = await GetEloData(db, userId);
 				if (result != null)
 					return result;
 			}
 			catch (Exception ex)
 			{
-				Console.WriteLine($"[ERROR] GetELOData failed: {ex.Message}");
+				Console.WriteLine($"[ERROR] GetELOData fallback failed: {ex.Message}");
 				SentrySdk.CaptureException(ex);
 			}
 
