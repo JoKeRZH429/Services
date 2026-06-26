@@ -29,9 +29,10 @@ namespace GenOnlineService
 
     public static class ExternalLeaderboardsClient
     {
-        private static void GetExternalLeaderboardsConfig(out string baseUrl, out string postToken, out string getToken)
+        private static void GetExternalLeaderboardsConfig(out string postUrl, out string getUrl, out string postToken, out string getToken)
         {
-            baseUrl = string.Empty;
+            postUrl = string.Empty;
+            getUrl = string.Empty;
             postToken = string.Empty;
             getToken = string.Empty;
 
@@ -46,13 +47,19 @@ namespace GenOnlineService
                 throw new Exception("ExternalLeaderboards section missing in config");
             }
 
-            string? sectionBaseUrl = configSection.GetValue<string>("BaseUrl");
+            string? sectionPostUrl = configSection.GetValue<string>("PostUrl");
+            string? sectionGetUrl = configSection.GetValue<string>("GetUrl");
             string? sectionPostToken = configSection.GetValue<string>("PostToken");
             string? sectionGetToken = configSection.GetValue<string>("GetToken");
 
-            if (string.IsNullOrEmpty(sectionBaseUrl))
+            if (string.IsNullOrEmpty(sectionPostUrl))
             {
-                throw new Exception("ExternalLeaderboards BaseUrl missing in config");
+                throw new Exception("ExternalLeaderboards PostUrl missing in config");
+            }
+
+            if (string.IsNullOrEmpty(sectionGetUrl))
+            {
+                throw new Exception("ExternalLeaderboards GetUrl missing in config");
             }
 
             if (string.IsNullOrEmpty(sectionPostToken))
@@ -65,7 +72,8 @@ namespace GenOnlineService
                 throw new Exception("ExternalLeaderboards GetToken missing in config");
             }
 
-            baseUrl = sectionBaseUrl;
+            postUrl = sectionPostUrl;
+            getUrl = sectionGetUrl;
             postToken = sectionPostToken;
             getToken = sectionGetToken;
         }
@@ -103,9 +111,7 @@ namespace GenOnlineService
 
             try
             {
-                GetExternalLeaderboardsConfig(out string baseUrl, out string postToken, out _);
-
-                string postUrl = $"{baseUrl.TrimEnd('/')}/matches/ingest";
+                GetExternalLeaderboardsConfig(out string postUrl, out _, out string postToken, out _);
 
                 // Load the match payload
                 var matchEntry = await Database.MatchHistory.LoadMatchHistoryEntryAsync(db, (long)lobby.MatchID);
@@ -209,9 +215,9 @@ namespace GenOnlineService
         {
             try
             {
-                GetExternalLeaderboardsConfig(out string baseUrl, out _, out string getToken);
+                GetExternalLeaderboardsConfig(out _, out string getUrl, out _, out string getToken);
 
-                string requestUrl = $"{baseUrl.TrimEnd('/')}/players/{playerId}/leagues/1/rating";
+                string requestUrl = getUrl.Replace("{playerId}", playerId.ToString());
 
                 using (var handler = CreateLeaderboardsHandler())
                 using (var client = new HttpClient(handler))
