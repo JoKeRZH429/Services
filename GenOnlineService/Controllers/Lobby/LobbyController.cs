@@ -75,6 +75,7 @@ namespace GenOnlineService.Controllers
 
 		public string screenshot_url { get; set; } = String.Empty;
 		public string replay_url { get; set; } = String.Empty;
+        public string stats_url { get; set; } = String.Empty;
 	}
 
 	public class RouteHandler_Get_MatchHistory_HighestMatchID_Result : APIResult
@@ -336,6 +337,7 @@ namespace GenOnlineService.Controllers
 								// give them back signed URLs they need
 								result.screenshot_url = await S3CredentialManager.GetPresignedURL(EMetadataFileType.FILE_TYPE_SCREENSHOT, EScreenshotType.SCREENSHOT_TYPE_SCORESCREEN, match_id, user_id, slotIndexInLobby, LobbyCreationTime);
 								result.replay_url = await S3CredentialManager.GetPresignedURL(EMetadataFileType.FILE_TYPE_REPLAY, EScreenshotType.NONE, match_id, user_id, slotIndexInLobby, LobbyCreationTime);
+								result.stats_url = await S3CredentialManager.GetPresignedURL(EMetadataFileType.FILE_TYPE_STATS, EScreenshotType.NONE, match_id, user_id, slotIndexInLobby, LobbyCreationTime);
 
 								// store in DB
 								await using var db = await _dbFactory.CreateDbContextAsync();

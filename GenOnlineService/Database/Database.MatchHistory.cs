@@ -159,7 +159,8 @@ namespace GenOnlineService
 	{
 		UNKNOWN = -1,
 		FILE_TYPE_SCREENSHOT = 0,
-		FILE_TYPE_REPLAY = 1
+		FILE_TYPE_REPLAY = 1,
+		FILE_TYPE_STATS = 2
 	};
 
 	public struct MemberMetadataModel
