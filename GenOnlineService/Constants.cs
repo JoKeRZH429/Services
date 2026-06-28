@@ -2520,7 +2520,14 @@ namespace GenOnlineService
 				strFileName = String.Format("match_{0}_user_{1}_replay.rep", matchID, strPerMatchUserIDKey);
 				strFolderPrefix = "replays";
 			}
+			else if (fileType == EMetadataFileType.FILE_TYPE_STATS)
+            {
+                strContentType = "application/gzip";
 
+                strFileName = String.Format("match_{0}_user_{1}_gamestats.json.gz", matchID, strPerMatchUserIDKey);
+                strFolderPrefix = "stats";
+            }
+			
 			if (strFileName == null)
 			{
 				return null;
